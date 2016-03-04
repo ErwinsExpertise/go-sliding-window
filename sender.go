@@ -141,3 +141,15 @@ func (s *SenderState) Start() {
 		}
 	}()
 }
+
+// Stop the SenderState componennt
+func (s *SenderState) Stop() {
+	s.mut.Lock()
+	select {
+	case <-s.ReqStop:
+	default:
+		close(s.ReqStop)
+	}
+	s.mut.Unlock()
+	<-s.Done
+}
