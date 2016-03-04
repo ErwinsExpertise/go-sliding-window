@@ -126,10 +126,7 @@ type Session struct {
 	ReqStop  chan bool
 	RecvDone chan bool
 
-	// networks. use Sim in preference to Nc if Sim is present
-	Nc  *nats.Conn
-	Sim *SimNet
-
+	Net         Network
 	RecvHistory []*Packet
 	SendHistory []*Packet
 
@@ -137,7 +134,7 @@ type Session struct {
 	DiscardCount int64
 }
 
-func NewSession(nc *nats.Conn, sim *SimNet,
+func NewSession(net Network,
 	localInbox string,
 	destInbox string,
 	windowSz int64,
@@ -147,29 +144,19 @@ func NewSession(nc *nats.Conn, sim *SimNet,
 		Swp:         NewSWP(windowSz, timeout),
 		MyInbox:     localInbox,
 		Destination: destInbox,
-		MsgRecv:     make(chan *Packet),
 		SendHistory: make([]*Packet, 0),
 		RecvHistory: make([]*Packet, 0),
-		Sim:         sim,
-		Nc:          nc,
+		Net:         net,
 		ReqStop:     make(chan bool),
 		RecvDone:    make(chan bool),
 	}
+	mr, err := net.Listen(localInbox)
+	if err != nil {
+		return nil, err
+	}
+	sess.MsgRecv = mr
 	sess.RecvStart()
 
-	var err error
-	if sim == nil {
-		// do actual subscription
-		sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
-			var pack Packet
-			_, err := pack.UnmarshalMsg(msg.Data)
-			panicOn(err)
-			sess.MsgRecv <- &pack
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
 	return sess, nil
 }
 
@@ -202,7 +189,7 @@ func (sess *Session) Push(pack *Packet) error {
 	slot.Session = sess
 	// todo: where are the timeouts handled?
 
-	return sess.send(slot.Pack)
+	return sess.Net.Send(slot.Pack)
 }
 
 // Stop shutsdown the session, including the background receiver.
@@ -268,13 +255,13 @@ func (sess *Session) RecvStart() {
 					slot.Pack = pack
 
 					if pack.SeqNum == r.NextFrameExpected {
-						p("Session %v packet.SeqNum %v matches r.NextFrameExpected",
+						p("%v packet.SeqNum %v matches r.NextFrameExpected",
 							sess.MyInbox, pack.SeqNum)
 						for slot.Received {
 
-							p("actual in-order receive happening")
+							p("%v actual in-order receive happening", sess.MyInbox)
 							sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
-							p("sess.RecvHistory now has length %v", len(sess.RecvHistory))
+							p("%v sess.RecvHistory now has length %v", sess.MyInbox, len(sess.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -309,24 +296,41 @@ func InWindow(seqno, min, max Seqno) bool {
 	return true
 }
 
-func (sess *Session) send(pack *Packet) error {
-	p("in Session.send(pack=%#v), with sess.Sim = %v", *pack, sess.Sim)
+type NatsNet struct {
+	Nc                *nats.Conn
+	InboxSubscription *nats.Subscription
+}
+
+type Network interface {
+	Send(pack *Packet) error
+	Listen(inbox string) (chan *Packet, error)
+}
+
+func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
+	mr := make(chan *Packet)
+
+	// do actual subscription
 	var err error
-	if sess.Sim != nil {
-		err = sess.Sim.Send(pack)
-	} else {
-		var bts []byte
-		bts, err = pack.MarshalMsg(nil)
-		if err != nil {
-			return err
-		}
-		err = sess.Nc.Publish(sess.Destination, bts)
+	n.InboxSubscription, err = n.Nc.Subscribe(inbox, func(msg *nats.Msg) {
+		var pack Packet
+		_, err := pack.UnmarshalMsg(msg.Data)
+		panicOn(err)
+		mr <- &pack
+	})
+	return mr, err
+}
+
+func (n *NatsNet) Send(pack *Packet) error {
+	p("in NatsNet.Send(pack=%#v)", *pack)
+	bts, err := pack.MarshalMsg(nil)
+	if err != nil {
+		return err
 	}
-	return err
+	return n.Nc.Publish(pack.Dest, bts)
 }
 
 type SimNet struct {
-	Net      map[string]*Session
+	Net      map[string]chan *Packet
 	LossProb float64
 	Latency  time.Duration
 }
@@ -336,18 +340,22 @@ type SimNet struct {
 // the packet getting lost on the network.
 func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 	return &SimNet{
-		Net:      make(map[string]*Session),
+		Net:      make(map[string]chan *Packet),
 		LossProb: lossProb,
 		Latency:  latency,
 	}
 }
 
-func (sim *SimNet) AddNode(name string, s *Session) {
-	sim.Net[name] = s
+func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
+	ch := make(chan *Packet)
+	sim.Net[inbox] = ch
+	return ch, nil
 }
 
 func (sim *SimNet) Send(pack *Packet) error {
-	node, ok := sim.Net[pack.Dest]
+	p("in SimNet.Send(pack=%#v)", *pack)
+
+	ch, ok := sim.Net[pack.Dest]
 	if !ok {
 		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
 	}
@@ -358,13 +366,13 @@ func (sim *SimNet) Send(pack *Packet) error {
 	} else {
 		p("sim: not lost. packet will arrive after %v", sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
-		go func(node *Session, pack *Packet) {
+		go func(ch chan *Packet, pack *Packet) {
 			<-time.After(sim.Latency)
 			p("sim: packet %v with latency %v ready to deliver to node %v, trying...",
-				pack.SeqNum, sim.Latency, node.MyInbox)
-			node.MsgRecv <- pack
-			p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, node.MyInbox)
-		}(node, pack)
+				pack.SeqNum, sim.Latency, pack.Dest)
+			ch <- pack
+			p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+		}(ch, pack)
 	}
 	return nil
 }

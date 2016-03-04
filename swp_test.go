@@ -22,12 +22,10 @@ func Test001Network(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 2 * lat
 
-	A, err := NewSession(nil, net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, rtt)
 	panicOn(err)
-	B, err := NewSession(nil, net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
-	net.AddNode("A", A)
-	net.AddNode("B", B)
 
 	p1 := &Packet{
 		From: "A",
