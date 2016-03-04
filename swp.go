@@ -25,7 +25,8 @@ import (
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64
 
-// Semaphore is the classic counting semaphore.
+// Semaphore is the classic counting semaphore. Here
+// it is simulated with a buffered channel.
 type Semaphore chan bool
 
 // NewSemaphore makes a new semaphore with capacity sz.
@@ -117,11 +118,10 @@ func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 // Session tracks a given point-to-point sesssion and its
 // sliding window state for one of the end-points.
 type Session struct {
-	Swp               *SWP
-	Destination       string
-	MyInbox           string
-	InboxSubscription *nats.Subscription
-	MsgRecv           chan *Packet
+	Swp         *SWP
+	Destination string
+	MyInbox     string
+	MsgRecv     chan *Packet
 
 	ReqStop  chan bool
 	RecvDone chan bool
@@ -160,6 +160,8 @@ func NewSession(net Network,
 	return sess, nil
 }
 
+var ErrShutdown = fmt.Errorf("shutting down")
+
 // Push sends a message packet, blocking until that is done.
 // It will copy data, so data can be recycled once Push returns.
 func (sess *Session) Push(pack *Packet) error {
@@ -168,7 +170,11 @@ func (sess *Session) Push(pack *Packet) error {
 
 	// wait for send window to open before sending anything.
 	// This will block if we are out of send slots.
-	s.ssem <- true
+	select {
+	case s.ssem <- true:
+	case <-sess.ReqStop:
+		return ErrShutdown
+	}
 
 	// blocking done, we have a send slot
 	s.mut.Lock()
@@ -216,7 +222,8 @@ func (sess *Session) RecvStart() {
 		close(ready)
 	recvloop:
 		for {
-			p("Session %v top of recvloop, with sender state '%#v'", sess.MyInbox, s)
+			p("Session %v top of recvloop, with sender LastAckRec: %v  LastFrameSent: %v",
+				sess.MyInbox, s.LastAckRec, s.LastFrameSent)
 			select {
 			case <-sess.ReqStop:
 				p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
@@ -239,7 +246,15 @@ func (sess *Session) RecvStart() {
 						slot.TimerCancelled = true
 						slot.Timeout.Stop()
 						slot.Pack = nil
-						<-s.ssem
+
+						// release the send slot
+						select {
+						case <-s.ssem:
+						case <-sess.ReqStop:
+							p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
+							close(sess.RecvDone)
+							return
+						}
 						if s.LastAckRec == pack.AckNum {
 							break
 						}
