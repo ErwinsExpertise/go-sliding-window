@@ -358,6 +358,9 @@ type SimNet struct {
 	Net      map[string]chan *Packet
 	LossProb float64
 	Latency  time.Duration
+
+	// simulate loss of the first packets
+	DiscardUntil Seqno
 }
 
 // NewSimNet makes a network simulator. The
@@ -384,6 +387,12 @@ func (sim *SimNet) Send(pack *Packet) error {
 	if !ok {
 		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
 	}
+
+	if pack.SeqNum < sim.DiscardUntil {
+		p("sim: packet lost because %v SeqNum < DiscardUntil (%v)", pack.SeqNum, sim.DiscardUntil)
+		return nil
+	}
+
 	pr := cryptoProb()
 	isLost := pr <= sim.LossProb
 	if sim.LossProb > 0 && isLost {
