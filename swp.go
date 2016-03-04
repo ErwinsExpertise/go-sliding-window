@@ -221,6 +221,15 @@ recvloop:
 						slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 					}
 				}
+				// send ack
+				ack := &Packet{
+					AckNum:  r.NextFrameExpected - 1,
+					AckOnly: true,
+				}
+				bts, err := ack.MarshalMsg(nil)
+				logOn(err)
+				err = sess.Nc.Publish(sess.Destination, bts)
+				logOn(err)
 			}
 		}
 	}
