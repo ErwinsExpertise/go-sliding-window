@@ -80,8 +80,8 @@ type RecvState struct {
 
 // SWP holds the Sliding Window Protocol state
 type SWP struct {
-	Sender SenderState
-	Recver RecvState
+	Sender *SenderState
+	Recver *RecvState
 }
 
 // NewSWP makes a new sliding window protocol manager, holding
@@ -90,7 +90,7 @@ func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 	recvSz := windowSize
 	sendSz := windowSize
 	swp := &SWP{
-		Sender: SenderState{
+		Sender: &SenderState{
 			SenderWindowSize: Seqno(sendSz),
 			Txq:              make([]*TxqSlot, sendSz),
 			ssem:             NewSemaphore(sendSz),
@@ -98,7 +98,7 @@ func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 			LastFrameSent:    -1,
 			LastAckRec:       -1,
 		},
-		Recver: RecvState{
+		Recver: &RecvState{
 			RecvWindowSize: Seqno(recvSz),
 			Rxq:            make([]*RxqSlot, recvSz),
 			Timeout:        timeout,
@@ -163,7 +163,7 @@ func NewSession(net Network,
 // Push sends a message packet, blocking until that is done.
 // It will copy data, so data can be recycled once Push returns.
 func (sess *Session) Push(pack *Packet) error {
-
+	p("%v Push called", sess.MyInbox)
 	s := sess.Swp.Sender
 
 	// wait for send window to open before sending anything.
@@ -175,6 +175,8 @@ func (sess *Session) Push(pack *Packet) error {
 	defer s.mut.Unlock()
 
 	s.LastFrameSent++
+	p("%v LastFrameSent is now %v", sess.MyInbox, s.LastFrameSent)
+
 	lfs := s.LastFrameSent
 	slot := s.Txq[lfs%s.SenderWindowSize]
 	pack.SeqNum = lfs
