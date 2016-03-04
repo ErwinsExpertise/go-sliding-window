@@ -32,7 +32,6 @@ func Test001Network(t *testing.T) {
 		Dest: "B",
 		Data: []byte("one"),
 	}
-	//p2 := &Packet{Data: []byte("two")}
 
 	err = A.Push(p1)
 	panicOn(err)
@@ -48,26 +47,5 @@ func Test001Network(t *testing.T) {
 		cv.So(len(B.SendHistory), cv.ShouldEqual, 1)
 		cv.So(len(B.RecvHistory), cv.ShouldEqual, 1)
 		cv.So(HistoryEqual(A.SendHistory, B.RecvHistory), cv.ShouldBeTrue)
-	})
-}
-
-func Test002ProbabilityGen(t *testing.T) {
-
-	cv.Convey("cryptoProb should generate reasonably balanced random probabilities - manually confirmed in R", t, func() {
-		/*
-			pr := make([]float64, 0)
-			fn := "random.number.check"
-			f, err := os.Create(fn)
-			panicOn(err)
-			for i := 1; i < 100000; i++ {
-				cp := cryptoProb()
-				pr = append(pr, cp)
-				fmt.Fprintf(f, "%v\n", cp)
-			}
-			f.Close()
-			// manually check in R
-			cv.So(true, cv.ShouldBeTrue)
-			//os.Remove(fn)
-		*/
 	})
 }

@@ -186,6 +186,14 @@ func (sess *Session) Push(pack *Packet) error {
 	lfs := s.LastFrameSent
 	slot := s.Txq[lfs%s.SenderWindowSize]
 	pack.SeqNum = lfs
+	if pack.From == "" {
+		pack.From = sess.MyInbox
+	} else {
+		if pack.From != sess.MyInbox {
+			return fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
+				pack.From, sess.MyInbox)
+		}
+	}
 	slot.Pack = pack
 
 	sess.SendHistory = append(sess.SendHistory, pack)
@@ -222,8 +230,8 @@ func (sess *Session) RecvStart() {
 		close(ready)
 	recvloop:
 		for {
-			p("Session %v top of recvloop, with sender LastAckRec: %v  LastFrameSent: %v",
-				sess.MyInbox, s.LastAckRec, s.LastFrameSent)
+			p("Session %v top of recvloop, sender LAR: %v  LFS: %v / receiver NFE: %v",
+				sess.MyInbox, s.LastAckRec, s.LastFrameSent, r.NextFrameExpected)
 			select {
 			case <-sess.ReqStop:
 				p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
