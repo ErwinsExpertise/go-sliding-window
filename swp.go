@@ -44,8 +44,8 @@ type TxqSlot struct {
 
 // RxqSlot is the receiver's sliding window element.
 type RxqSlot struct {
-	Valid bool
-	Pack  *Packet
+	Received bool
+	Pack     *Packet
 }
 
 // SenderState tracks the sender's sliding window state.
@@ -63,7 +63,6 @@ type SenderState struct {
 type RecvState struct {
 	NextFrameExpected Seqno
 	Rxq               []*RxqSlot
-	rsem              Semaphore
 	RecvWindowSize    Seqno
 	mut               sync.Mutex
 	Timeout           time.Duration
@@ -90,7 +89,6 @@ func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 		Recver: RecvState{
 			RecvWindowSize: Seqno(recvSz),
 			Rxq:            make([]*RxqSlot, recvSz),
-			rsem:           NewSemaphore(recvSz),
 			Timeout:        timeout,
 		},
 	}
@@ -211,11 +209,11 @@ recvloop:
 					p("packet outside receiver's window, dropping it")
 					continue recvloop
 				}
-				slot.Valid = true
+				slot.Received = true
 				if slot.Pack.SeqNum == r.NextFrameExpected {
 
-					for slot.Valid {
-						slot.Valid = false
+					for slot.Received {
+						slot.Received = false
 						slot.Pack = nil
 						r.NextFrameExpected++
 						slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
