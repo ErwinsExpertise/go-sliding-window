@@ -1,8 +1,8 @@
 package swp
 
 import (
-	"atomic/sync"
 	"github.com/nats-io/nats"
+	"sync"
 	"time"
 )
 
@@ -13,6 +13,8 @@ import (
 
 //go:generate msgp
 
+//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session
+
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64
 
@@ -20,7 +22,7 @@ type Seqno int64
 type Semaphore chan bool
 
 // NewSemaphore makes a new semaphore with capacity sz.
-func NewSemaphore(sz int) Semaphore {
+func NewSemaphore(sz int64) Semaphore {
 	return make(chan bool, sz)
 }
 
@@ -34,63 +36,72 @@ type Packet struct {
 
 // TxqSlot is the sender's sliding window element.
 type TxqSlot struct {
-	Timeout *time.Timer
-	Session *Session
-	Pack    Packet
+	Timeout        *time.Timer `msg:"-"`
+	TimerCancelled bool
+	Session        *Session
+	Pack           *Packet
 }
 
 // RxqSlot is the receiver's sliding window element.
 type RxqSlot struct {
 	Valid bool
-	Pack  Packet
+	Pack  *Packet
 }
 
 // SenderState tracks the sender's sliding window state.
 type SenderState struct {
-	LastAckRecvd     Seqno
+	LastAckRec       Seqno
 	LastFrameSent    Seqno
-	Swindow          []TxqSlot
-	Ssem             Semaphore
-	SenderWindowSize int
-	Mut              sync.Mutex
+	Txq              []*TxqSlot
+	ssem             Semaphore
+	SenderWindowSize Seqno
+	mut              sync.Mutex
 	Timeout          time.Duration
 }
 
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
 	NextFrameExpected Seqno
-	Rwindow           []RxqSlot
-	Rsem              Semaphore
-	RecvWindowSize    int
-	Mut               sync.Mutex
+	Rxq               []*RxqSlot
+	rsem              Semaphore
+	RecvWindowSize    Seqno
+	mut               sync.Mutex
 	Timeout           time.Duration
 }
 
 // SWP holds the Sliding Window Protocol state
 type SWP struct {
-	Sender SendState
+	Sender SenderState
 	Recver RecvState
 }
 
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
-func NewSWP(windowSize int, timeout time.Duration) *SWP {
+func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 	recvSz := windowSize
 	sendSz := windowSize
-	return &SWP{
-		Sender: SendState{
-			SenderWindowSize: sendSz,
-			Swindow:          make([]TxqSlot, sendSz),
-			Ssem:             NewSemaphore(sendSz),
+	swp := &SWP{
+		Sender: SenderState{
+			SenderWindowSize: Seqno(sendSz),
+			Txq:              make([]*TxqSlot, sendSz),
+			ssem:             NewSemaphore(sendSz),
 			Timeout:          timeout,
 		},
 		Recver: RecvState{
-			RecvWindowSize: recvSz,
-			Rwindow:        make([]RxqSlot, recvSz),
-			Rsem:           NewSemaphore(recvSz),
+			RecvWindowSize: Seqno(recvSz),
+			Rxq:            make([]*RxqSlot, recvSz),
+			rsem:           NewSemaphore(recvSz),
 			Timeout:        timeout,
 		},
 	}
+	for i := range swp.Sender.Txq {
+		swp.Sender.Txq[i] = &TxqSlot{}
+	}
+	for i := range swp.Recver.Rxq {
+		swp.Recver.Rxq[i] = &RxqSlot{}
+	}
+
+	return swp
 }
 
 // Session tracks a given point-to-point sesssion and its
@@ -107,7 +118,7 @@ type Session struct {
 func NewSession(nc *nats.Conn,
 	localInbox string,
 	destInbox string,
-	windowSz int,
+	windowSz int64,
 	timeout time.Duration) (*Session, error) {
 
 	sess := &Session{
@@ -116,7 +127,7 @@ func NewSession(nc *nats.Conn,
 		Destination: destInbox,
 		MsgRecv:     make(chan *nats.Msg),
 	}
-
+	var err error
 	sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
 		sess.MsgRecv <- msg
 	})
@@ -124,7 +135,7 @@ func NewSession(nc *nats.Conn,
 		return nil, err
 	}
 	sess.Nc = nc
-	return sess
+	return sess, nil
 }
 
 // Push sends a message packet, blocking until that is done.
@@ -134,19 +145,22 @@ func Push(sess *Session, data []byte) error {
 	s := sess.Swp.Sender
 
 	// wait for send window to open before sending anything
-	s.Ssem <- true
-	s.Mut.Lock()
-	defer s.Mut.Unlock()
+	s.ssem <- true
+	s.mut.Lock()
+	defer s.mut.Unlock()
 
 	s.LastFrameSent++
-	lfs = s.LastFrameSent
-	slot := &s.Swindow[lfs%s.SenderWindowSize]
-	slot.Pack.SeqNum = lfs
-	slot.Pack.Data = data
+	lfs := s.LastFrameSent
+	slot := s.Txq[lfs%s.SenderWindowSize]
+	slot.Pack = &Packet{
+		SeqNum: lfs,
+		Data:   data,
+	}
 
 	// todo: start go routine that listens for this timeout
 	// most of this logic probably moves to that goroutine too.
 	slot.Timeout = time.NewTimer(s.Timeout)
+	slot.TimerCancelled = false
 	slot.Session = sess
 
 	bts, err := slot.Pack.MarshalMsg(nil)
@@ -156,15 +170,70 @@ func Push(sess *Session, data []byte) error {
 	return sess.Nc.Publish(sess.Destination, bts)
 }
 
-// Pop receives a message packet, blocking until that is done.
+// Pop receives. It receives both data and acks from earlier sends.
 // Pop recevies acks (for sends from this node), and data.
 func Pop(sess *Session) ([]byte, error) {
 
 	r := sess.Swp.Recver
+	s := sess.Swp.Sender
 
-	// finish this out.
-	//sess.Nc.
+recvloop:
+	for {
+		select {
+		case msg := <-sess.MsgRecv:
+			var pack Packet
+			_, err := pack.UnmarshalMsg(msg.Data)
+			panicOn(err)
+			switch {
+			case pack.AckOnly:
+				// only an ack received - do sender side stuff
+				if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
+					p("packet outside sender's window, dropping it")
+					continue recvloop
+				}
+				for {
+					s.LastAckRec++
+					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
+					slot.TimerCancelled = true
+					slot.Timeout.Stop()
+					slot.Pack = nil
+					<-s.ssem
+					if s.LastAckRec == pack.AckNum {
+						break
+					}
+				}
 
-	left, err := v.UnmarshalMsg(bts)
+			default:
+				// actual data received, receiver side stuff:
+				slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
+				if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
+					// drop the packet
+					p("packet outside receiver's window, dropping it")
+					continue recvloop
+				}
+				slot.Valid = true
+				if slot.Pack.SeqNum == r.NextFrameExpected {
 
+					for slot.Valid {
+						slot.Valid = false
+						slot.Pack = nil
+						r.NextFrameExpected++
+						slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
+					}
+				}
+			}
+		}
+	}
+
+}
+
+// InWindow returns true iff seqno is in [min, max].
+func InWindow(seqno, min, max Seqno) bool {
+	if seqno < min {
+		return false
+	}
+	if seqno > max {
+		return false
+	}
+	return true
 }

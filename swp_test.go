@@ -1,9 +1,6 @@
 package swp
 
 import (
-	"fmt"
-	"os/exec"
-	"strings"
 	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -18,6 +15,6 @@ import (
 func Test001(t *testing.T) {
 
 	cv.Convey("", t, func() {
-		cv.So()
+		cv.So(true, cv.ShouldBeTrue)
 	})
 }
