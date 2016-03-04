@@ -133,7 +133,8 @@ type Session struct {
 	RecvHistory []*Packet
 	SendHistory []*Packet
 
-	mut sync.Mutex
+	mut          sync.Mutex
+	DiscardCount int64
 }
 
 func NewSession(nc *nats.Conn, sim *SimNet,
@@ -239,6 +240,7 @@ func (sess *Session) RecvStart() {
 					if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 						p("packet.AckNum = %v outside sender's window [%v, %v], dropping it.",
 							pack.AckNum, s.LastAckRec+1, s.LastFrameSent)
+						sess.DiscardCount++
 						continue recvloop
 					}
 					p("packet.AckNum = %v inside sender's window, keeping it.", pack.AckNum)
@@ -258,7 +260,8 @@ func (sess *Session) RecvStart() {
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
 						// drop the packet
-						p("packet outside receiver's window, dropping it")
+						p("pack.SeqNum %v outside receiver's window, dropping it", pack.SeqNum)
+						sess.DiscardCount++
 						continue recvloop
 					}
 					slot.Received = true
