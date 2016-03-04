@@ -164,6 +164,7 @@ func Push(sess *Session, data []byte) error {
 	slot.Timeout = time.NewTimer(s.Timeout)
 	slot.TimerCancelled = false
 	slot.Session = sess
+	// todo: where are the timeouts handled?
 
 	bts, err := slot.Pack.MarshalMsg(nil)
 	if err != nil {
