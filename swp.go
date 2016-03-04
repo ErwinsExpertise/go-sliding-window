@@ -119,12 +119,14 @@ type Session struct {
 	Destination       string
 	MyInbox           string
 	InboxSubscription *nats.Subscription
-	Nc                *nats.Conn
-	MsgRecv           chan *Packet // *nats.Msg
-	Sim               *SimNet
+	MsgRecv           chan *Packet
+
+	// networks. use Sim in preference to Nc if Sim is present
+	Nc  *nats.Conn
+	Sim *SimNet
 }
 
-func NewSession(nc *nats.Conn,
+func NewSession(nc *nats.Conn, sim *SimNet,
 	localInbox string,
 	destInbox string,
 	windowSz int64,
@@ -281,9 +283,9 @@ type SimNet struct {
 	Net      map[string]*Session
 	LossProb float64
 	Latency  time.Duration
-	Arrival  chan *Packet
 }
 
+// NewSimNet makes a network simulator. The
 // latency is one-way trip time; lossProb is the probability of
 // the packet getting lost on the network.
 func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
@@ -305,7 +307,7 @@ func (sim *SimNet) Send(pack *Packet) error {
 	}
 	pr := cryptoProb()
 	isLost := pr <= sim.LossProb
-	if isLost {
+	if sim.LossProb > 0 && isLost {
 		p("sim: packet lost")
 	} else {
 		p("sim: packet will arrive after %v", sim.Latency)
@@ -313,6 +315,7 @@ func (sim *SimNet) Send(pack *Packet) error {
 		go func(node *Session, pack *Packet) {
 			<-time.After(sim.Latency)
 			node.MsgRecv <- pack
+			p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, node.MyInbox)
 		}(node, pack)
 	}
 	return nil
