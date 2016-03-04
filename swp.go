@@ -211,8 +211,8 @@ func (r *RecvState) Start() error {
 	go func() {
 	recvloop:
 		for {
-			p("%v top of recvloop, sender LAR: %v  LFS: %v / receiver NFE: %v",
-				r.Inbox, r.snd.LastAckRec, r.snd.LastFrameSent, r.NextFrameExpected)
+			p("%v top of recvloop, receiver NFE: %v",
+				r.Inbox, r.NextFrameExpected)
 			select {
 			case <-r.ReqStop:
 				p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
@@ -221,7 +221,11 @@ func (r *RecvState) Start() error {
 			case pack := <-r.MsgRecv:
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				if pack.AckOnly {
-					r.snd.GotAck <- pack.AckNum
+					r.snd.GotAck <- AckStatus{
+						AckNum: pack.AckNum,
+						NFE:    r.NextFrameExpected,
+						RWS:    r.RecvWindowSize,
+					}
 				} else {
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
@@ -240,8 +244,8 @@ func (r *RecvState) Start() error {
 						for slot.Received {
 
 							p("%v actual in-order receive happening", r.Inbox)
-							sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
-							p("%v sess.RecvHistory now has length %v", r.Inbox, len(sess.RecvHistory))
+							r.RecvHistory = append(r.RecvHistory, slot.Pack)
+							p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -257,8 +261,6 @@ func (r *RecvState) Start() error {
 						AckOnly: true,
 					}
 					r.snd.SendAck <- ack
-					//err := sess.Push(ack)
-					//logOn(err)
 				}
 			}
 		}

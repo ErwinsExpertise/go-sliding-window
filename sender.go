@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+type AckStatus struct {
+	AckNum Seqno
+	LAR    Seqno
+	NFE    Seqno
+	RWS    Seqno
+}
+
 // SenderState tracks the sender's sliding window state.
 type SenderState struct {
 	Net              Network
@@ -21,13 +28,15 @@ type SenderState struct {
 	// the main goroutine safe way to request
 	// sending a packet:
 	BlockingSend chan *Packet
-	GotAck       chan int64
+	GotAck       chan AckStatus
 
-	ReqStop     chan bool
-	Done        chan bool
-	SendHistory []*Packet
-	SendSz      int64
-	slotsAvail  int64
+	ReqStop      chan bool
+	Done         chan bool
+	SendHistory  []*Packet
+	SendSz       int64
+	slotsAvail   int64
+	SendAck      chan *Packet
+	DiscardCount int64
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox string) *SenderState {
@@ -45,7 +54,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		SendHistory:      make([]*Packet, 0),
 		BlockingSend:     make(chan *Packet),
 		SendSz:           sendSz,
-		GotAck:           make(chan int64),
+		GotAck:           make(chan AckStatus),
+		SendAck:          make(chan *Packet),
 	}
 }
 
@@ -57,7 +67,11 @@ func (s *SenderState) Start() {
 
 		var acceptSend chan *Packet
 
+	sendloop:
 		for {
+			p("%v top of snedloop, sender LAR: %v, LFS: %v \n",
+				s.Inbox, s.LastAckRec, s.LastFrameSent)
+
 			// do we have capacity to accept a send?
 			if s.slotsAvail > 0 {
 				// yes
@@ -98,33 +112,25 @@ func (s *SenderState) Start() {
 				err := s.Net.Send(slot.Pack)
 				panicOn(err)
 
-			case acknum := <-s.GotAck:
-				r.snd.GotAck <- pack.AckNum
-
+			case a := <-s.GotAck:
 				// only an ack received - do sender side stuff
-				if !InWindow(pack.AckNum, r.LastAckRec+1, r.snd.LastFrameSent) {
-					p("packet.AckNum = %v outside sender's window [%v, %v], dropping it.",
-						pack.AckNum, r.LastAckRec+1, r.snd.LastFrameSent)
-					r.DiscardCount++
-					continue recvloop
+				if !InWindow(a.AckNum, a.LAR+1, s.LastFrameSent) {
+					p("a.AckNum = %v outside sender's window [%v, %v], dropping it.",
+						a.AckNum, a.LAR+1, s.LastFrameSent)
+					s.DiscardCount++
+					continue sendloop
 				}
-				p("packet.AckNum = %v inside sender's window, keeping it.", pack.AckNum)
+				p("packet.AckNum = %v inside sender's window, keeping it.", a.AckNum)
 				for {
-					r.LastAckRec++
-					slot := s.Txq[r.LastAckRec%s.SenderWindowSize]
+					s.LastAckRec++
+					slot := s.Txq[a.LAR%s.SenderWindowSize]
 					slot.TimerCancelled = true
 					slot.Timer.Stop()
 					slot.Pack = nil
 
 					// release the send slot
-					select {
-					case <-s.ssem:
-					case <-sess.ReqStop:
-						p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
-						close(sess.RecvDone)
-						return
-					}
-					if s.LastAckRec == pack.AckNum {
+					s.slotsAvail++
+					if s.LastAckRec == a.AckNum {
 						break
 					}
 				}
