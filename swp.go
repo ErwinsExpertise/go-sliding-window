@@ -46,7 +46,7 @@ type Packet struct {
 
 // TxqSlot is the sender's sliding window element.
 type TxqSlot struct {
-	Timeout        *time.Timer `msg:"-"`
+	Timeout        *time.Timer
 	TimerCancelled bool
 	Session        *Session
 	Pack           *Packet
@@ -180,11 +180,7 @@ func (sess *Session) Push(data []byte) error {
 	slot.Session = sess
 	// todo: where are the timeouts handled?
 
-	bts, err := slot.Pack.MarshalMsg(nil)
-	if err != nil {
-		return err
-	}
-	return sess.Nc.Publish(sess.Destination, bts)
+	return sess.send(slot.Pack)
 }
 
 // Pop receives. It receives both data and acks from earlier sends.
