@@ -47,7 +47,7 @@ type Packet struct {
 
 // TxqSlot is the sender's sliding window element.
 type TxqSlot struct {
-	Timeout        *time.Timer
+	Timer          *time.Timer
 	TimerCancelled bool
 	Session        *Session
 	Pack           *Packet
@@ -200,7 +200,7 @@ func (sess *Session) Push(pack *Packet) error {
 
 	// todo: start go routine that listens for this timeout
 	// most of this logic probably moves to that goroutine too.
-	slot.Timeout = time.NewTimer(s.Timeout)
+	slot.Timer = time.NewTimer(s.Timeout)
 	slot.TimerCancelled = false
 	slot.Session = sess
 	// todo: where are the timeouts handled?
@@ -252,7 +252,7 @@ func (sess *Session) RecvStart() {
 						s.LastAckRec++
 						slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
 						slot.TimerCancelled = true
-						slot.Timeout.Stop()
+						slot.Timer.Stop()
 						slot.Pack = nil
 
 						// release the send slot
