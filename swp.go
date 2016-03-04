@@ -152,6 +152,8 @@ func NewSession(nc *nats.Conn, sim *SimNet,
 		ReqStop:     make(chan bool),
 		RecvDone:    make(chan bool),
 	}
+	sess.RecvStart()
+
 	var err error
 	if sim == nil {
 		// do actual subscription
@@ -217,25 +219,28 @@ func (s *Session) Stop() {
 // RecvStart receives. It receives both data and acks from earlier sends.
 // It starts a go routine in the background.
 func (sess *Session) RecvStart() {
+	ready := make(chan bool)
 	go func() {
 		r := sess.Swp.Recver
 		s := sess.Swp.Sender
+		close(ready)
 	recvloop:
 		for {
+			p("Session %v top of recvloop", sess.MyInbox)
 			select {
 			case <-sess.ReqStop:
+				p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
 				close(sess.RecvDone)
 				return
-			case msg := <-sess.MsgRecv:
-				var pack Packet
-				_, err := pack.UnmarshalMsg(msg.Data)
-				panicOn(err)
+			case pack := <-sess.MsgRecv:
+				p("Session %v recvloop sees packet '%#v'", sess.MyInbox, pack)
 				if pack.AckOnly {
 					// only an ack received - do sender side stuff
 					if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 						p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
 						continue recvloop
 					}
+					p("packet.AckNum = %v inside sender's window, keeping it.", pack.AckNum)
 					for {
 						s.LastAckRec++
 						slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
@@ -256,6 +261,8 @@ func (sess *Session) RecvStart() {
 						continue recvloop
 					}
 					slot.Received = true
+					slot.Pack = pack
+
 					if slot.Pack.SeqNum == r.NextFrameExpected {
 						for slot.Received {
 
@@ -275,12 +282,13 @@ func (sess *Session) RecvStart() {
 						AckNum:  r.NextFrameExpected - 1,
 						AckOnly: true,
 					}
-					err = sess.send(ack)
+					err := sess.send(ack)
 					logOn(err)
 				}
 			}
 		}
 	}()
+	<-ready
 }
 
 // InWindow returns true iff seqno is in [min, max].
@@ -341,10 +349,12 @@ func (sim *SimNet) Send(pack *Packet) error {
 	if sim.LossProb > 0 && isLost {
 		p("sim: packet lost")
 	} else {
-		p("sim: packet will arrive after %v", sim.Latency)
+		p("sim: not lost. packet will arrive after %v", sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
 		go func(node *Session, pack *Packet) {
 			<-time.After(sim.Latency)
+			p("sim: packet %v with latency %v ready to deliver to node %v, trying...",
+				pack.SeqNum, sim.Latency, node.MyInbox)
 			node.MsgRecv <- pack
 			p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, node.MyInbox)
 		}(node, pack)

@@ -18,7 +18,7 @@ import (
 func Test001Network(t *testing.T) {
 
 	lossProb := float64(0)
-	lat := time.Second
+	lat := time.Millisecond
 	net := NewSimNet(lossProb, lat)
 	rtt := 2 * lat
 
@@ -34,6 +34,11 @@ func Test001Network(t *testing.T) {
 
 	err = A.Push(data1)
 	panicOn(err)
+
+	time.Sleep(time.Second)
+
+	A.Stop()
+	B.Stop()
 
 	cv.Convey("Given two nodes A and B, sending a packet on a non-lossy network from A to B, the packet should arrive at B", t, func() {
 		cv.So(len(B.SendHistory), cv.ShouldEqual, 1)
