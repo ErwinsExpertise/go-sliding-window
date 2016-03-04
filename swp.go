@@ -1,6 +1,9 @@
 package swp
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/binary"
+	"fmt"
 	"github.com/nats-io/nats"
 	"sync"
 	"time"
@@ -32,6 +35,9 @@ func NewSemaphore(sz int64) Semaphore {
 
 // Packet is what is transmitted between Sender and Recver.
 type Packet struct {
+	From string
+	Dest string
+
 	SeqNum  Seqno
 	AckNum  Seqno
 	AckOnly bool
@@ -114,7 +120,8 @@ type Session struct {
 	MyInbox           string
 	InboxSubscription *nats.Subscription
 	Nc                *nats.Conn
-	MsgRecv           chan *nats.Msg
+	MsgRecv           chan *Packet // *nats.Msg
+	Sim               *SimNet
 }
 
 func NewSession(nc *nats.Conn,
@@ -127,11 +134,14 @@ func NewSession(nc *nats.Conn,
 		Swp:         NewSWP(windowSz, timeout),
 		MyInbox:     localInbox,
 		Destination: destInbox,
-		MsgRecv:     make(chan *nats.Msg),
+		MsgRecv:     make(chan *Packet),
 	}
 	var err error
 	sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
-		sess.MsgRecv <- msg
+		var pack Packet
+		_, err := pack.UnmarshalMsg(msg.Data)
+		panicOn(err)
+		sess.MsgRecv <- &pack
 	})
 	if err != nil {
 		return nil, err
@@ -142,7 +152,7 @@ func NewSession(nc *nats.Conn,
 
 // Push sends a message packet, blocking until that is done.
 // It will copy data, so data can be recycled once Push returns.
-func Push(sess *Session, data []byte) error {
+func (sess *Session) Push(data []byte) error {
 
 	s := sess.Swp.Sender
 
@@ -155,6 +165,8 @@ func Push(sess *Session, data []byte) error {
 	lfs := s.LastFrameSent
 	slot := s.Txq[lfs%s.SenderWindowSize]
 	slot.Pack = &Packet{
+		From:   sess.MyInbox,
+		Dest:   sess.Destination,
 		SeqNum: lfs,
 		Data:   data,
 	}
@@ -175,7 +187,7 @@ func Push(sess *Session, data []byte) error {
 
 // Pop receives. It receives both data and acks from earlier sends.
 // Pop recevies acks (for sends from this node), and data.
-func Pop(sess *Session) ([]byte, error) {
+func (sess *Session) Pop() ([]byte, error) {
 
 	r := sess.Swp.Recver
 	s := sess.Swp.Sender
@@ -191,7 +203,7 @@ recvloop:
 			case pack.AckOnly:
 				// only an ack received - do sender side stuff
 				if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					p("packet outside sender's window, dropping it")
+					p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
 					continue recvloop
 				}
 				for {
@@ -226,12 +238,12 @@ recvloop:
 				}
 				// send ack
 				ack := &Packet{
+					From:    sess.MyInbox,
+					Dest:    sess.Destination,
 					AckNum:  r.NextFrameExpected - 1,
 					AckOnly: true,
 				}
-				bts, err := ack.MarshalMsg(nil)
-				logOn(err)
-				err = sess.Nc.Publish(sess.Destination, bts)
+				err = sess.send(ack)
 				logOn(err)
 			}
 		}
@@ -248,4 +260,75 @@ func InWindow(seqno, min, max Seqno) bool {
 		return false
 	}
 	return true
+}
+
+func (sess *Session) send(pack *Packet) error {
+	var err error
+	if sess.Sim != nil {
+		err = sess.Sim.Send(pack)
+	} else {
+		var bts []byte
+		bts, err = pack.MarshalMsg(nil)
+		if err != nil {
+			return err
+		}
+		err = sess.Nc.Publish(sess.Destination, bts)
+	}
+	return err
+}
+
+type SimNet struct {
+	Net      map[string]*Session
+	LossProb float64
+	Latency  time.Duration
+	Arrival  chan *Packet
+}
+
+// latency is one-way trip time; lossProb is the probability of
+// the packet getting lost on the network.
+func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
+	return &SimNet{
+		Net:      make(map[string]*Session),
+		LossProb: lossProb,
+		Latency:  latency,
+	}
+}
+
+func (sim *SimNet) AddNode(name string, s *Session) {
+	sim.Net[name] = s
+}
+
+func (sim *SimNet) Send(pack *Packet) error {
+	node, ok := sim.Net[pack.Dest]
+	if !ok {
+		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
+	}
+	pr := cryptoProb()
+	isLost := pr <= sim.LossProb
+	if isLost {
+		p("sim: packet lost")
+	} else {
+		p("sim: packet will arrive after %v", sim.Latency)
+		// start a goroutine per packet sent, to simulate arrival time with a timer.
+		go func(node *Session, pack *Packet) {
+			<-time.After(sim.Latency)
+			node.MsgRecv <- pack
+		}(node, pack)
+	}
+	return nil
+}
+
+const resolution = 1 << 20
+
+func cryptoProb() float64 {
+	b := make([]byte, 8)
+	_, err := cryptorand.Read(b)
+	panicOn(err)
+	r := int(binary.LittleEndian.Uint64(b))
+	if r < 0 {
+		r = -r
+	}
+	r = r % (resolution + 1)
+
+	return float64(r) / float64(resolution)
 }
