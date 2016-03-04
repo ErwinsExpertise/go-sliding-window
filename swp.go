@@ -59,24 +59,26 @@ type RxqSlot struct {
 	Pack     *Packet
 }
 
-// SenderState tracks the sender's sliding window state.
-type SenderState struct {
-	LastAckRec       Seqno
-	LastFrameSent    Seqno
-	Txq              []*TxqSlot
-	ssem             Semaphore
-	SenderWindowSize Seqno
-	mut              sync.Mutex
-	Timeout          time.Duration
-}
-
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
+	Net               Network
+	Inbox             string
 	NextFrameExpected Seqno
 	Rxq               []*RxqSlot
 	RecvWindowSize    Seqno
 	mut               sync.Mutex
 	Timeout           time.Duration
+	RecvHistory       []*Packet
+
+	MsgRecv chan *Packet
+
+	ReqStop chan bool
+	Done    chan bool
+
+	RecvSz       int64
+	DiscardCount int64
+
+	snd *SenderState
 }
 
 // SWP holds the Sliding Window Protocol state
@@ -85,25 +87,32 @@ type SWP struct {
 	Recver *RecvState
 }
 
+// NewRecvState makes a new RecvState manager.
+func NewRecvState(net Network, recvSz int64, timeout time.Duration, inbox string, snd *SenderState) *RecvState {
+	return &RecvState{
+		Net:            net,
+		Inbox:          inbox,
+		RecvWindowSize: Seqno(recvSz),
+		Rxq:            make([]*RxqSlot, recvSz),
+		Timeout:        timeout,
+		RecvHistory:    make([]*Packet, 0),
+		ReqStop:        make(chan bool),
+		Done:           make(chan bool),
+		RecvSz:         recvSz,
+		snd:            snd,
+	}
+}
+
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
-func NewSWP(windowSize int64, timeout time.Duration) *SWP {
+func NewSWP(net Network, windowSize int64, timeout time.Duration, inbox string) *SWP {
 	recvSz := windowSize
 	sendSz := windowSize
+	snd := NewSenderState(net, sendSz, timeout, inbox)
+	rcv := NewRecvState(net, recvSz, timeout, inbox, snd)
 	swp := &SWP{
-		Sender: &SenderState{
-			SenderWindowSize: Seqno(sendSz),
-			Txq:              make([]*TxqSlot, sendSz),
-			ssem:             NewSemaphore(sendSz),
-			Timeout:          timeout,
-			LastFrameSent:    -1,
-			LastAckRec:       -1,
-		},
-		Recver: &RecvState{
-			RecvWindowSize: Seqno(recvSz),
-			Rxq:            make([]*RxqSlot, recvSz),
-			Timeout:        timeout,
-		},
+		Sender: snd,
+		Recver: rcv,
 	}
 	for i := range swp.Sender.Txq {
 		swp.Sender.Txq[i] = &TxqSlot{}
@@ -121,17 +130,8 @@ type Session struct {
 	Swp         *SWP
 	Destination string
 	MyInbox     string
-	MsgRecv     chan *Packet
 
-	ReqStop  chan bool
-	RecvDone chan bool
-
-	Net         Network
-	RecvHistory []*Packet
-	SendHistory []*Packet
-
-	mut          sync.Mutex
-	DiscardCount int64
+	Net Network
 }
 
 func NewSession(net Network,
@@ -141,21 +141,12 @@ func NewSession(net Network,
 	timeout time.Duration) (*Session, error) {
 
 	sess := &Session{
-		Swp:         NewSWP(windowSz, timeout),
+		Swp:         NewSWP(net, windowSz, timeout, localInbox),
 		MyInbox:     localInbox,
 		Destination: destInbox,
-		SendHistory: make([]*Packet, 0),
-		RecvHistory: make([]*Packet, 0),
 		Net:         net,
-		ReqStop:     make(chan bool),
-		RecvDone:    make(chan bool),
 	}
-	mr, err := net.Listen(localInbox)
-	if err != nil {
-		return nil, err
-	}
-	sess.MsgRecv = mr
-	sess.RecvStart()
+	sess.Swp.Start()
 
 	return sess, nil
 }
@@ -172,7 +163,7 @@ func (sess *Session) Push(pack *Packet) error {
 	// This will block if we are out of send slots.
 	select {
 	case s.ssem <- true:
-	case <-sess.ReqStop:
+	case <-s.ReqStop:
 		return ErrShutdown
 	}
 
@@ -196,7 +187,7 @@ func (sess *Session) Push(pack *Packet) error {
 	}
 	slot.Pack = pack
 
-	sess.SendHistory = append(sess.SendHistory, pack)
+	s.SendHistory = append(s.SendHistory, pack)
 
 	// todo: start go routine that listens for this timeout
 	// most of this logic probably moves to that goroutine too.
@@ -208,72 +199,36 @@ func (sess *Session) Push(pack *Packet) error {
 	return sess.Net.Send(slot.Pack)
 }
 
-// Stop shutsdown the session, including the background receiver.
-func (s *Session) Stop() {
-	s.mut.Lock()
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	s.mut.Unlock()
-	<-s.RecvDone
-}
-
 // RecvStart receives. It receives both data and acks from earlier sends.
 // It starts a go routine in the background.
-func (sess *Session) RecvStart() {
-	ready := make(chan bool)
+func (r *RecvState) Start() error {
+	mr, err := r.Net.Listen(r.Inbox)
+	if err != nil {
+		return err
+	}
+	r.MsgRecv = mr
+
 	go func() {
-		r := sess.Swp.Recver
-		s := sess.Swp.Sender
-		close(ready)
 	recvloop:
 		for {
-			p("Session %v top of recvloop, sender LAR: %v  LFS: %v / receiver NFE: %v",
-				sess.MyInbox, s.LastAckRec, s.LastFrameSent, r.NextFrameExpected)
+			p("%v top of recvloop, sender LAR: %v  LFS: %v / receiver NFE: %v",
+				r.Inbox, r.snd.LastAckRec, r.snd.LastFrameSent, r.NextFrameExpected)
 			select {
-			case <-sess.ReqStop:
-				p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
-				close(sess.RecvDone)
+			case <-r.ReqStop:
+				p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
+				close(r.Done)
 				return
-			case pack := <-sess.MsgRecv:
-				p("Session %v recvloop sees packet '%#v'", sess.MyInbox, pack)
+			case pack := <-r.MsgRecv:
+				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				if pack.AckOnly {
-					// only an ack received - do sender side stuff
-					if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-						p("packet.AckNum = %v outside sender's window [%v, %v], dropping it.",
-							pack.AckNum, s.LastAckRec+1, s.LastFrameSent)
-						sess.DiscardCount++
-						continue recvloop
-					}
-					p("packet.AckNum = %v inside sender's window, keeping it.", pack.AckNum)
-					for {
-						s.LastAckRec++
-						slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
-						slot.TimerCancelled = true
-						slot.Timer.Stop()
-						slot.Pack = nil
-
-						// release the send slot
-						select {
-						case <-s.ssem:
-						case <-sess.ReqStop:
-							p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
-							close(sess.RecvDone)
-							return
-						}
-						if s.LastAckRec == pack.AckNum {
-							break
-						}
-					}
+					r.snd.GotAck <- pack.AckNum
 				} else {
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
 						// drop the packet
 						p("pack.SeqNum %v outside receiver's window, dropping it", pack.SeqNum)
-						sess.DiscardCount++
+						r.DiscardCount++
 						continue recvloop
 					}
 					slot.Received = true
@@ -281,12 +236,12 @@ func (sess *Session) RecvStart() {
 
 					if pack.SeqNum == r.NextFrameExpected {
 						p("%v packet.SeqNum %v matches r.NextFrameExpected",
-							sess.MyInbox, pack.SeqNum)
+							r.Inbox, pack.SeqNum)
 						for slot.Received {
 
-							p("%v actual in-order receive happening", sess.MyInbox)
+							p("%v actual in-order receive happening", r.Inbox)
 							sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
-							p("%v sess.RecvHistory now has length %v", sess.MyInbox, len(sess.RecvHistory))
+							p("%v sess.RecvHistory now has length %v", r.Inbox, len(sess.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -296,18 +251,19 @@ func (sess *Session) RecvStart() {
 					}
 					// send ack
 					ack := &Packet{
-						From:    sess.MyInbox,
-						Dest:    sess.Destination,
+						From:    r.Inbox,
+						Dest:    pack.From,
 						AckNum:  r.NextFrameExpected - 1,
 						AckOnly: true,
 					}
-					err := sess.Push(ack)
-					logOn(err)
+					r.snd.SendAck <- ack
+					//err := sess.Push(ack)
+					//logOn(err)
 				}
 			}
 		}
 	}()
-	<-ready
+	return nil
 }
 
 // InWindow returns true iff seqno is in [min, max].
@@ -326,11 +282,19 @@ type NatsNet struct {
 	InboxSubscription *nats.Subscription
 }
 
+// Network describes our network abstraction, and is implemented
+// by SimNet and NatsNet.
 type Network interface {
+
+	// Send transmits the packet. It is send and pray; no
+	// guarantee of delivery is made by the Network.
 	Send(pack *Packet) error
+
+	// Listen starts receiving packets addressed to inbox on the returned channel.
 	Listen(inbox string) (chan *Packet, error)
 }
 
+// Listen starts receiving packets addressed to inbox on the returned channel.
 func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 	mr := make(chan *Packet)
 
@@ -345,6 +309,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 	return mr, err
 }
 
+// Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet) error {
 	p("in NatsNet.Send(pack=%#v)", *pack)
 	bts, err := pack.MarshalMsg(nil)
@@ -354,6 +319,7 @@ func (n *NatsNet) Send(pack *Packet) error {
 	return n.Nc.Publish(pack.Dest, bts)
 }
 
+// SimNet simulates a network with a given latency and loss characteristics.
 type SimNet struct {
 	Net      map[string]chan *Packet
 	LossProb float64
@@ -441,4 +407,45 @@ func HistoryEqual(a, b []*Packet) bool {
 		}
 	}
 	return true
+}
+
+// Stop the SenderState componennt
+func (s *SenderState) Stop() {
+	s.mut.Lock()
+	select {
+	case <-s.ReqStop:
+	default:
+		close(s.ReqStop)
+	}
+	s.mut.Unlock()
+	<-s.Done
+}
+
+// Stop the RecvState componennt
+func (s *RecvState) Stop() {
+	s.mut.Lock()
+	select {
+	case <-s.ReqStop:
+	default:
+		close(s.ReqStop)
+	}
+	s.mut.Unlock()
+	<-s.Done
+}
+
+// Stop shutsdown the session
+func (s *Session) Stop() {
+	s.Swp.Stop()
+}
+
+// Stop the sliding window protocol
+func (s *SWP) Stop() {
+	s.Recver.Stop()
+	s.Sender.Stop()
+}
+
+// Start the sliding window protocol
+func (s *SWP) Start() {
+	s.Recver.Start()
+	s.Sender.Start()
 }
