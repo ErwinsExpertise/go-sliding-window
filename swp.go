@@ -11,6 +11,10 @@ import (
 // Reference: pp118-120, Computer Networks: A Systems Approach
 //  by Peterson and Davie, Morgan Kaufmann Publishers, 1996.
 
+// NB this is only sliding window, and while planned,
+// doesn't have the AdvertisedWindow yet for flow-control
+// and throttling the sender. See pp296-301 of Peterson and Davie.
+
 //go:generate msgp
 
 //msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session
