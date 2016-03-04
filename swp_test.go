@@ -29,10 +29,14 @@ func Test001Network(t *testing.T) {
 	net.AddNode("A", A)
 	net.AddNode("B", B)
 
-	data1 := []byte("one")
-	//data2 := []byte("two")
+	p1 := &Packet{
+		From: "A",
+		Dest: "B",
+		Data: []byte("one"),
+	}
+	//p2 := &Packet{Data: []byte("two")}
 
-	err = A.Push(data1)
+	err = A.Push(p1)
 	panicOn(err)
 
 	time.Sleep(time.Second)

@@ -95,6 +95,8 @@ func NewSWP(windowSize int64, timeout time.Duration) *SWP {
 			Txq:              make([]*TxqSlot, sendSz),
 			ssem:             NewSemaphore(sendSz),
 			Timeout:          timeout,
+			LastFrameSent:    -1,
+			LastAckRec:       -1,
 		},
 		Recver: RecvState{
 			RecvWindowSize: Seqno(recvSz),
@@ -172,24 +174,22 @@ func NewSession(nc *nats.Conn, sim *SimNet,
 
 // Push sends a message packet, blocking until that is done.
 // It will copy data, so data can be recycled once Push returns.
-func (sess *Session) Push(data []byte) error {
+func (sess *Session) Push(pack *Packet) error {
 
 	s := sess.Swp.Sender
 
-	// wait for send window to open before sending anything
+	// wait for send window to open before sending anything.
+	// This will block if we are out of send slots.
 	s.ssem <- true
+
+	// blocking done, we have a send slot
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
 	s.LastFrameSent++
 	lfs := s.LastFrameSent
 	slot := s.Txq[lfs%s.SenderWindowSize]
-	pack := &Packet{
-		From:   sess.MyInbox,
-		Dest:   sess.Destination,
-		SeqNum: lfs,
-		Data:   data,
-	}
+	pack.SeqNum = lfs
 	slot.Pack = pack
 
 	sess.SendHistory = append(sess.SendHistory, pack)
@@ -226,7 +226,7 @@ func (sess *Session) RecvStart() {
 		close(ready)
 	recvloop:
 		for {
-			p("Session %v top of recvloop", sess.MyInbox)
+			p("Session %v top of recvloop, with sender state '%#v'", sess.MyInbox, s)
 			select {
 			case <-sess.ReqStop:
 				p("Session %v recvloop sees ReqStop, shutting down.", sess.MyInbox)
@@ -237,7 +237,8 @@ func (sess *Session) RecvStart() {
 				if pack.AckOnly {
 					// only an ack received - do sender side stuff
 					if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-						p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
+						p("packet.AckNum = %v outside sender's window [%v, %v], dropping it.",
+							pack.AckNum, s.LastAckRec+1, s.LastFrameSent)
 						continue recvloop
 					}
 					p("packet.AckNum = %v inside sender's window, keeping it.", pack.AckNum)
@@ -263,11 +264,14 @@ func (sess *Session) RecvStart() {
 					slot.Received = true
 					slot.Pack = pack
 
-					if slot.Pack.SeqNum == r.NextFrameExpected {
+					if pack.SeqNum == r.NextFrameExpected {
+						p("Session %v packet.SeqNum %v matches r.NextFrameExpected",
+							sess.MyInbox, pack.SeqNum)
 						for slot.Received {
 
-							// actual receive happens here:
+							p("actual in-order receive happening")
 							sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
+							p("sess.RecvHistory now has length %v", len(sess.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -282,7 +286,7 @@ func (sess *Session) RecvStart() {
 						AckNum:  r.NextFrameExpected - 1,
 						AckOnly: true,
 					}
-					err := sess.send(ack)
+					err := sess.Push(ack)
 					logOn(err)
 				}
 			}
