@@ -16,19 +16,29 @@ import (
 // out of order receives - reorder correctly.
 //
 func Test001Network(t *testing.T) {
-	net := NewSimNet(0, time.Second)
+
+	lossProb := float64(0)
 	lat := time.Second
+	net := NewSimNet(lossProb, lat)
 	rtt := 2 * lat
 
-	a, err := NewSession(nil, net, "a", "b", 3, rtt)
+	A, err := NewSession(nil, net, "A", "B", 3, rtt)
 	panicOn(err)
-	b, err := NewSession(nil, net, "b", "a", 3, rtt)
+	B, err := NewSession(nil, net, "B", "A", 3, rtt)
 	panicOn(err)
-	net.AddNode("a", a)
-	net.AddNode("b", b)
+	net.AddNode("A", A)
+	net.AddNode("B", B)
 
-	cv.Convey("", t, func() {
-		cv.So(true, cv.ShouldBeTrue)
+	data1 := []byte("one")
+	//data2 := []byte("two")
+
+	err = A.Push(data1)
+	panicOn(err)
+
+	cv.Convey("Given two nodes A and B, sending a packet on a non-lossy network from A to B, the packet should arrive at B", t, func() {
+		cv.So(len(B.SendHistory), cv.ShouldEqual, 1)
+		cv.So(len(B.RecvHistory), cv.ShouldEqual, 1)
+		cv.So(HistoryEqual(A.SendHistory, B.RecvHistory), cv.ShouldBeTrue)
 	})
 }
 

@@ -124,6 +124,9 @@ type Session struct {
 	// networks. use Sim in preference to Nc if Sim is present
 	Nc  *nats.Conn
 	Sim *SimNet
+
+	RecvHistory []*Packet
+	SendHistory []*Packet
 }
 
 func NewSession(nc *nats.Conn, sim *SimNet,
@@ -137,18 +140,24 @@ func NewSession(nc *nats.Conn, sim *SimNet,
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		MsgRecv:     make(chan *Packet),
+		SendHistory: make([]*Packet, 0),
+		RecvHistory: make([]*Packet, 0),
+		Sim:         sim,
+		Nc:          nc,
 	}
 	var err error
-	sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
-		var pack Packet
-		_, err := pack.UnmarshalMsg(msg.Data)
-		panicOn(err)
-		sess.MsgRecv <- &pack
-	})
-	if err != nil {
-		return nil, err
+	if sim == nil {
+		// do actual subscription
+		sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
+			var pack Packet
+			_, err := pack.UnmarshalMsg(msg.Data)
+			panicOn(err)
+			sess.MsgRecv <- &pack
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	sess.Nc = nc
 	return sess, nil
 }
 
@@ -166,12 +175,15 @@ func (sess *Session) Push(data []byte) error {
 	s.LastFrameSent++
 	lfs := s.LastFrameSent
 	slot := s.Txq[lfs%s.SenderWindowSize]
-	slot.Pack = &Packet{
+	pack := &Packet{
 		From:   sess.MyInbox,
 		Dest:   sess.Destination,
 		SeqNum: lfs,
 		Data:   data,
 	}
+	slot.Pack = pack
+
+	sess.SendHistory = append(sess.SendHistory, pack)
 
 	// todo: start go routine that listens for this timeout
 	// most of this logic probably moves to that goroutine too.
@@ -197,8 +209,7 @@ recvloop:
 			var pack Packet
 			_, err := pack.UnmarshalMsg(msg.Data)
 			panicOn(err)
-			switch {
-			case pack.AckOnly:
+			if pack.AckOnly {
 				// only an ack received - do sender side stuff
 				if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
@@ -215,8 +226,7 @@ recvloop:
 						break
 					}
 				}
-
-			default:
+			} else {
 				// actual data received, receiver side stuff:
 				slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 				if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
@@ -226,8 +236,11 @@ recvloop:
 				}
 				slot.Received = true
 				if slot.Pack.SeqNum == r.NextFrameExpected {
-
 					for slot.Received {
+
+						// actual receive happens here:
+						sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
+
 						slot.Received = false
 						slot.Pack = nil
 						r.NextFrameExpected++
@@ -261,6 +274,7 @@ func InWindow(seqno, min, max Seqno) bool {
 }
 
 func (sess *Session) send(pack *Packet) error {
+	p("in Session.send(pack=%#v), with sess.Sim = %v", *pack, sess.Sim)
 	var err error
 	if sess.Sim != nil {
 		err = sess.Sim.Send(pack)
@@ -330,4 +344,21 @@ func cryptoProb() float64 {
 	r = r % (resolution + 1)
 
 	return float64(r) / float64(resolution)
+}
+
+// HistoryEqual lets one easily compare and send and a recv history
+func HistoryEqual(a, b []*Packet) bool {
+	na := len(a)
+	nb := len(b)
+	if na != nb {
+		return false
+	}
+	for i := 0; i < na; i++ {
+		if a[i].SeqNum != b[i].SeqNum {
+			p("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
+				i, a[i].SeqNum, b[i].SeqNum)
+			return false
+		}
+	}
+	return true
 }
