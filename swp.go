@@ -121,12 +121,17 @@ type Session struct {
 	InboxSubscription *nats.Subscription
 	MsgRecv           chan *Packet
 
+	ReqStop  chan bool
+	RecvDone chan bool
+
 	// networks. use Sim in preference to Nc if Sim is present
 	Nc  *nats.Conn
 	Sim *SimNet
 
 	RecvHistory []*Packet
 	SendHistory []*Packet
+
+	mut sync.Mutex
 }
 
 func NewSession(nc *nats.Conn, sim *SimNet,
@@ -144,6 +149,8 @@ func NewSession(nc *nats.Conn, sim *SimNet,
 		RecvHistory: make([]*Packet, 0),
 		Sim:         sim,
 		Nc:          nc,
+		ReqStop:     make(chan bool),
+		RecvDone:    make(chan bool),
 	}
 	var err error
 	if sim == nil {
@@ -195,71 +202,85 @@ func (sess *Session) Push(data []byte) error {
 	return sess.send(slot.Pack)
 }
 
-// Pop receives. It receives both data and acks from earlier sends.
-// Pop recevies acks (for sends from this node), and data.
-func (sess *Session) Pop() ([]byte, error) {
+// Stop shutsdown the session, including the background receiver.
+func (s *Session) Stop() {
+	s.mut.Lock()
+	select {
+	case <-s.ReqStop:
+	default:
+		close(s.ReqStop)
+	}
+	s.mut.Unlock()
+	<-s.RecvDone
+}
 
-	r := sess.Swp.Recver
-	s := sess.Swp.Sender
-
-recvloop:
-	for {
-		select {
-		case msg := <-sess.MsgRecv:
-			var pack Packet
-			_, err := pack.UnmarshalMsg(msg.Data)
-			panicOn(err)
-			if pack.AckOnly {
-				// only an ack received - do sender side stuff
-				if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
-					continue recvloop
-				}
-				for {
-					s.LastAckRec++
-					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
-					slot.TimerCancelled = true
-					slot.Timeout.Stop()
-					slot.Pack = nil
-					<-s.ssem
-					if s.LastAckRec == pack.AckNum {
-						break
+// RecvStart receives. It receives both data and acks from earlier sends.
+// It starts a go routine in the background.
+func (sess *Session) RecvStart() {
+	go func() {
+		r := sess.Swp.Recver
+		s := sess.Swp.Sender
+	recvloop:
+		for {
+			select {
+			case <-sess.ReqStop:
+				close(sess.RecvDone)
+				return
+			case msg := <-sess.MsgRecv:
+				var pack Packet
+				_, err := pack.UnmarshalMsg(msg.Data)
+				panicOn(err)
+				if pack.AckOnly {
+					// only an ack received - do sender side stuff
+					if !InWindow(pack.AckNum, s.LastAckRec+1, s.LastFrameSent) {
+						p("packet.AckNum = %v outside sender's window, dropping it.", pack.AckNum)
+						continue recvloop
 					}
-				}
-			} else {
-				// actual data received, receiver side stuff:
-				slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
-				if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
-					// drop the packet
-					p("packet outside receiver's window, dropping it")
-					continue recvloop
-				}
-				slot.Received = true
-				if slot.Pack.SeqNum == r.NextFrameExpected {
-					for slot.Received {
-
-						// actual receive happens here:
-						sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
-
-						slot.Received = false
+					for {
+						s.LastAckRec++
+						slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
+						slot.TimerCancelled = true
+						slot.Timeout.Stop()
 						slot.Pack = nil
-						r.NextFrameExpected++
-						slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
+						<-s.ssem
+						if s.LastAckRec == pack.AckNum {
+							break
+						}
 					}
+				} else {
+					// actual data received, receiver side stuff:
+					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
+					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
+						// drop the packet
+						p("packet outside receiver's window, dropping it")
+						continue recvloop
+					}
+					slot.Received = true
+					if slot.Pack.SeqNum == r.NextFrameExpected {
+						for slot.Received {
+
+							// actual receive happens here:
+							sess.RecvHistory = append(sess.RecvHistory, slot.Pack)
+
+							slot.Received = false
+							slot.Pack = nil
+							r.NextFrameExpected++
+							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
+						}
+					}
+					// send ack
+					ack := &Packet{
+						From:    sess.MyInbox,
+						Dest:    sess.Destination,
+						AckNum:  r.NextFrameExpected - 1,
+						AckOnly: true,
+					}
+					err = sess.send(ack)
+					logOn(err)
 				}
-				// send ack
-				ack := &Packet{
-					From:    sess.MyInbox,
-					Dest:    sess.Destination,
-					AckNum:  r.NextFrameExpected - 1,
-					AckOnly: true,
-				}
-				err = sess.send(ack)
-				logOn(err)
 			}
 		}
-	}
-
+	}()
 }
 
 // InWindow returns true iff seqno is in [min, max].
