@@ -7,6 +7,11 @@ import (
 )
 
 // sliding window protocol
+//
+// Reference: pp118-120, Computer Networks: A Systems Approach
+//  by Peterson and Davie, Morgan Kaufmann Publishers, 1996.
+
+//go:generate msgp
 
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64
@@ -31,13 +36,13 @@ type Packet struct {
 type TxqSlot struct {
 	Timeout *time.Timer
 	Session *Session
-	Msg     Packet
+	Pack    Packet
 }
 
 // RxqSlot is the receiver's sliding window element.
 type RxqSlot struct {
-	Valid *bool
-	Msg   *Packet
+	Valid bool
+	Pack  Packet
 }
 
 // SenderState tracks the sender's sliding window state.
@@ -91,15 +96,39 @@ func NewSWP(windowSize int, timeout time.Duration) *SWP {
 // Session tracks a given point-to-point sesssion and its
 // sliding window state for one of the end-points.
 type Session struct {
-	Swp         *SWP
-	Destination string
-	MyInBox     string
-	Nc          *nats.Conn
+	Swp               *SWP
+	Destination       string
+	MyInbox           string
+	InboxSubscription *nats.Subscription
+	Nc                *nats.Conn
+	MsgRecv           chan *nats.Msg
+}
+
+func NewSession(nc *nats.Conn,
+	localInbox string,
+	destInbox string,
+	windowSz int,
+	timeout time.Duration) (*Session, error) {
+
+	sess := &Session{
+		Swp:         NewSWP(windowSz, timeout),
+		MyInbox:     localInbox,
+		Destination: destInbox,
+		MsgRecv:     make(chan *nats.Msg),
+	}
+
+	sess.InboxSubscription, err = nc.Subscribe(sess.MyInbox, func(msg *nats.Msg) {
+		sess.MsgRecv <- msg
+	})
+	if err != nil {
+		return nil, err
+	}
+	sess.Nc = nc
+	return sess
 }
 
 // Push sends a message packet, blocking until that is done.
-// It does not copy data, once sent data should not be touched.
-// Hence the caller should arrange for copying data if need be.
+// It will copy data, so data can be recycled once Push returns.
 func Push(sess *Session, data []byte) error {
 
 	s := sess.Swp.Sender
@@ -111,17 +140,31 @@ func Push(sess *Session, data []byte) error {
 
 	s.LastFrameSent++
 	lfs = s.LastFrameSent
-	msg.SeqNum = lfs
-	slot := &s.Swindow[msg.SeqNum%s.SenderWindowSize]
-	slot.Msg.Data = data
+	slot := &s.Swindow[lfs%s.SenderWindowSize]
+	slot.Pack.SeqNum = lfs
+	slot.Pack.Data = data
+
+	// todo: start go routine that listens for this timeout
+	// most of this logic probably moves to that goroutine too.
 	slot.Timeout = time.NewTimer(s.Timeout)
 	slot.Session = sess
 
-	return sess.Nc.Publish(sess.Destination, data)
+	bts, err := slot.Pack.MarshalMsg(nil)
+	if err != nil {
+		return err
+	}
+	return sess.Nc.Publish(sess.Destination, bts)
 }
 
 // Pop receives a message packet, blocking until that is done.
 // Pop recevies acks (for sends from this node), and data.
 func Pop(sess *Session) ([]byte, error) {
+
+	r := sess.Swp.Recver
+
+	// finish this out.
+	//sess.Nc.
+
+	left, err := v.UnmarshalMsg(bts)
 
 }
