@@ -20,7 +20,6 @@ type SenderState struct {
 	LastAckRec       Seqno
 	LastFrameSent    Seqno
 	Txq              []*TxqSlot
-	ssem             Semaphore
 	SenderWindowSize Seqno
 	mut              sync.Mutex
 	Timeout          time.Duration
@@ -45,7 +44,6 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		Inbox:            inbox,
 		SenderWindowSize: Seqno(sendSz),
 		Txq:              make([]*TxqSlot, sendSz),
-		ssem:             NewSemaphore(sendSz),
 		Timeout:          timeout,
 		LastFrameSent:    -1,
 		LastAckRec:       -1,

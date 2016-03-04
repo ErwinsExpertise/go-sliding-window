@@ -24,15 +24,6 @@ import (
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64
 
-// Semaphore is the classic counting semaphore. Here
-// it is simulated with a buffered channel.
-type Semaphore chan bool
-
-// NewSemaphore makes a new semaphore with capacity sz.
-func NewSemaphore(sz int64) Semaphore {
-	return make(chan bool, sz)
-}
-
 // Packet is what is transmitted between Sender and Recver.
 type Packet struct {
 	From string
@@ -115,49 +106,9 @@ func NewSession(net Network,
 var ErrShutdown = fmt.Errorf("shutting down")
 
 // Push sends a message packet, blocking until that is done.
-// It will copy data, so data can be recycled once Push returns.
-func (sess *Session) Push(pack *Packet) error {
+func (sess *Session) Push(pack *Packet) {
 	p("%v Push called", sess.MyInbox)
-	s := sess.Swp.Sender
-
-	// wait for send window to open before sending anything.
-	// This will block if we are out of send slots.
-	select {
-	case s.ssem <- true:
-	case <-s.ReqStop:
-		return ErrShutdown
-	}
-
-	// blocking done, we have a send slot
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	s.LastFrameSent++
-	p("%v LastFrameSent is now %v", sess.MyInbox, s.LastFrameSent)
-
-	lfs := s.LastFrameSent
-	slot := s.Txq[lfs%s.SenderWindowSize]
-	pack.SeqNum = lfs
-	if pack.From == "" {
-		pack.From = sess.MyInbox
-	} else {
-		if pack.From != sess.MyInbox {
-			return fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
-				pack.From, sess.MyInbox)
-		}
-	}
-	slot.Pack = pack
-
-	s.SendHistory = append(s.SendHistory, pack)
-
-	// todo: start go routine that listens for this timeout
-	// most of this logic probably moves to that goroutine too.
-	slot.Timer = time.NewTimer(s.Timeout)
-	slot.TimerCancelled = false
-	slot.Session = sess
-	// todo: where are the timeouts handled?
-
-	return sess.Net.Send(slot.Pack)
+	sess.Swp.Sender.BlockingSend <- pack
 }
 
 // InWindow returns true iff seqno is in [min, max].

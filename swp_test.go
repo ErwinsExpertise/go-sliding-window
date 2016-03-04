@@ -33,8 +33,7 @@ func Test001Network(t *testing.T) {
 		Data: []byte("one"),
 	}
 
-	err = A.Push(p1)
-	panicOn(err)
+	A.Push(p1)
 
 	time.Sleep(time.Second)
 
@@ -69,8 +68,7 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 		Data: []byte("one"),
 	}
 
-	err = A.Push(p1)
-	panicOn(err)
+	A.Push(p1)
 
 	time.Sleep(time.Second)
 
