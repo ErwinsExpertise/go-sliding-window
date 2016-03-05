@@ -184,7 +184,7 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	lossProb := float64(.10)
 	lat := 1 * time.Millisecond
 	net := NewSimNet(lossProb, lat)
-	rtt := 2 * lat
+	rtt := 100 * lat
 
 	A, err := NewSession(net, "A", "B", 3, rtt)
 	panicOn(err)

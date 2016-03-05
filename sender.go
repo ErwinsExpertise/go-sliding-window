@@ -39,8 +39,8 @@ type SenderState struct {
 	SendAck      chan *Packet
 	DiscardCount int64
 
-	timerPq         *PQ
-	SentButNotAcked map[Seqno]bool
+	//timerPq         *PQ
+	SentButNotAcked map[Seqno]*TxqSlot
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox string) *SenderState {
@@ -60,11 +60,11 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		GotAck:           make(chan AckStatus),
 		SendAck:          make(chan *Packet),
 		//timerPq:          NewPriorityQueue(sendSz),
-		timerPq:         NewPQ(sendSz),
-		SentButNotAcked: make(map[Seqno]bool),
+		//timerPq:         NewPQ(sendSz),
+		SentButNotAcked: make(map[Seqno]*TxqSlot),
 	}
 
-	s.initPriorityQ()
+	//s.initPriorityQ()
 	return s
 }
 
@@ -106,57 +106,34 @@ func (s *SenderState) Start() {
 
 				// have any of our packets timed-out and need to be
 				// sent again?
-				if len(s.timerPq.Slc) == 0 || s.timerPq.Slc[0] == nil || s.timerPq.Slc[0].Pack == nil {
-					q("%v no outstanding packets on wakeup.", s.Inbox)
-					// just reset wakeup and keep going
-				} else {
-					origLenPq := s.timerPq.Len()
-					p("%v we have outstanding packets, with origLenPq = %v", s.Inbox, origLenPq)
-					s.dumpTimerPq()
-				doRetryLoop:
-					for len(s.timerPq.Slc) > 0 && s.timerPq.Slc[0].RetryDeadline.Before(time.Now()) {
-						/*
-							                             // should never get here now.
-														if s.timerPq.Slc[0].Pack == nil || s.timerPq.Slc[0].RetryDeadline.IsZero() {
-															// just ignore and continue
-															s.timerPq.PopTop()
-															//p("%v after heap.Pop(), ignoring this packet, now pqlen = %v",
-															//	s.Inbox, s.timerPq.Len())
-															//s.dumpTimerPq()
-															continue doRetryLoop
-														}
-						*/
-						if !s.SentButNotAcked[s.timerPq.Slc[0].Pack.SeqNum] {
-							p("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
-								s.timerPq.Slc[0].Pack.SeqNum)
-							s.timerPq.PopTop()
-							continue doRetryLoop
-						}
-						if s.timerPq.Slc[0].Pack.SeqNum <= s.LastAckRec {
-							p("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
-								s.LastAckRec, s.timerPq.Slc[0].Pack.SeqNum)
-							s.timerPq.PopTop()
-							continue doRetryLoop
-						}
-
-						// need to retry this guy
-						slot := s.timerPq.PopTop()
-						p("%v we have timed-out packet that needs to be retried: %v", s.Inbox, slot.Pack.SeqNum)
-
-						// reset deadline and resend
-						slot.RetryDeadline = time.Now().Add(s.Timeout)
-
-						//p("%v pre heap.Push() pqlen = %v", s.Inbox, s.timerPq.Len())
-						//s.dumpTimerPq()
-
-						s.timerPq.Add(slot)
-						err := s.Net.Send(slot.Pack)
-						panicOn(err)
-
-						//p("%v after resend, now pqlen = %v", s.Inbox, s.timerPq.Len())
-						//s.dumpTimerPq()
+				retry := []*TxqSlot{}
+				for _, slot := range s.SentButNotAcked {
+					if slot.RetryDeadline.Before(time.Now()) {
+						retry = append(retry, slot)
+					}
+				}
+			doRetryLoop:
+				for _, slot := range retry {
+					if slot.Pack == nil {
+						p("retry loop, slot = %#v", slot)
+					}
+					_, ok := s.SentButNotAcked[slot.Pack.SeqNum]
+					if !ok {
+						p("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
+							slot.Pack.SeqNum)
+						continue doRetryLoop
+					}
+					if slot.Pack.SeqNum <= s.LastAckRec {
+						p("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
+							s.LastAckRec, slot.Pack.SeqNum)
+						continue doRetryLoop
 					}
 
+					// reset deadline and resend
+					slot.RetryDeadline = time.Now().Add(s.Timeout)
+
+					err := s.Net.Send(slot.Pack)
+					panicOn(err)
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
 				q("%v reset the regularIntervalWakeup.", s.Inbox)
@@ -182,14 +159,14 @@ func (s *SenderState) Start() {
 					s.LastAckRec++
 
 					// do this before changing slot, since we point into slot.
-					s.timerPq.RemoveBySeqNum(a.AckNum)
+					delete(s.SentButNotAcked, s.LastAckRec)
 
 					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
 					p("%v ... slot = %#v", s.Inbox, slot)
-					if slot != nil {
-						slot.RetryDeadline = time.Time{}
-						slot.Pack = nil
-					}
+					//					if slot != nil {
+					//						slot.RetryDeadline = time.Time{}
+					//						slot.Pack = nil
+					//					}
 
 					// release the send slot
 					s.slotsAvail++
@@ -223,6 +200,7 @@ func (s *SenderState) Stop() {
 	<-s.Done
 }
 
+/*
 func (s *SenderState) initPriorityQ() {
 	s.timerPq.Max = s.SendSz
 }
@@ -250,6 +228,7 @@ func (s *SenderState) dumpTimerPq() {
 	fmt.Printf("%v end Idx ===============\n", s.Inbox)
 
 }
+*/
 
 func (s *SenderState) doSend(pack *Packet) {
 	s.slotsAvail--
@@ -259,7 +238,6 @@ func (s *SenderState) doSend(pack *Packet) {
 	q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
 	lfs := s.LastFrameSent
-	s.SentButNotAcked[lfs] = true
 	pos := lfs % s.SenderWindowSize
 	slot := s.Txq[pos]
 
@@ -270,11 +248,12 @@ func (s *SenderState) doSend(pack *Packet) {
 	}
 	pack.From = s.Inbox
 	slot.Pack = pack
+	s.SentButNotAcked[lfs] = slot
 
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.RetryDeadline = time.Now().Add(s.Timeout)
 	q("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
-	s.timerPq.Add(slot)
+	//s.timerPq.Add(slot)
 
 	err := s.Net.Send(slot.Pack)
 	panicOn(err)
