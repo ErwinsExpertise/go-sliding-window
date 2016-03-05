@@ -75,7 +75,7 @@ func (s *SenderState) Start() {
 		var acceptSend chan *Packet
 
 		// check for expired timers at wakeFreq
-		wakeFreq := 10 * time.Millisecond
+		wakeFreq := 100 * time.Millisecond
 
 		regularIntervalWakeup := time.After(wakeFreq)
 
@@ -186,6 +186,7 @@ func (s *SenderState) Start() {
 					if slot != nil {
 						slot.RetryDeadline = time.Time{}
 						slot.Pack = nil
+						s.Txq[s.LastAckRec%s.SenderWindowSize] = nil
 					}
 					if s.timerPq[0] != nil && s.timerPq[0].Pack != nil {
 						if s.timerPq[0].Pack.SeqNum == a.AckNum {
@@ -200,10 +201,12 @@ func (s *SenderState) Start() {
 					// release the send slot
 					s.slotsAvail++
 					if s.LastAckRec == a.AckNum {
-						p("%v s.LastAskRec matches a.AckNum, breaking", s.Inbox)
+						p("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
+							s.Inbox, s.LastAckRec, a.AckNum)
 						break
 					}
-					p("%v s.LastAskRec != a.AckNum, looping", s.Inbox)
+					p("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
+						s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
 				err := s.Net.Send(ackPack)

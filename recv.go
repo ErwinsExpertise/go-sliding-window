@@ -81,13 +81,16 @@ func (r *RecvState) Start() error {
 					}
 					slot.Received = true
 					slot.Pack = pack
+					p("%v packet %#v queued for ordered delivery, checking to see if we can deliver now",
+						r.Inbox, slot.Pack)
 
 					if pack.SeqNum == r.NextFrameExpected {
 						p("%v packet.SeqNum %v matches r.NextFrameExpected",
 							r.Inbox, pack.SeqNum)
 						for slot.Received {
 
-							p("%v actual in-order receive happening", r.Inbox)
+							p("%v actual in-order receive happening for SeqNum %v",
+								r.Inbox, slot.Pack.SeqNum)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
 							p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
@@ -96,17 +99,20 @@ func (r *RecvState) Start() error {
 							r.NextFrameExpected++
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 						}
+						p("%v about to send ack with AckNum: %v to %v",
+							r.Inbox, r.NextFrameExpected-1, pack.From)
+						// send ack
+						ack := &Packet{
+							From:    r.Inbox,
+							Dest:    pack.From,
+							AckNum:  r.NextFrameExpected - 1,
+							AckOnly: true,
+						}
+						r.snd.SendAck <- ack
+					} else {
+						p("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
+							r.Inbox, pack.SeqNum, r.NextFrameExpected)
 					}
-					p("%v about to send ack with AckNum: %v to %v",
-						r.Inbox, r.NextFrameExpected-1, pack.From)
-					// send ack
-					ack := &Packet{
-						From:    r.Inbox,
-						Dest:    pack.From,
-						AckNum:  r.NextFrameExpected - 1,
-						AckOnly: true,
-					}
-					r.snd.SendAck <- ack
 				}
 			}
 		}

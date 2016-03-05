@@ -83,3 +83,53 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 		cv.So(HistoryEqual(A.Swp.Sender.SendHistory, B.Swp.Recver.RecvHistory), cv.ShouldBeTrue)
 	})
 }
+
+func Test003MisorderedPacketsAreReordered(t *testing.T) {
+
+	lossProb := float64(0)
+	lat := time.Millisecond
+	net := NewSimNet(lossProb, lat)
+	rtt := 2 * lat
+
+	p("effectively turning off replays for this test")
+	rtt = time.Hour
+	A, err := NewSession(net, "A", "B", 3, rtt)
+	panicOn(err)
+	B, err := NewSession(net, "B", "A", 3, rtt)
+	panicOn(err)
+
+	p2 := &Packet{
+		From: "A",
+		Dest: "B",
+		Data: []byte("two"),
+	}
+
+	p1 := &Packet{
+		From: "A",
+		Dest: "B",
+		Data: []byte("one"),
+	}
+
+	net.SimulateReorderNext = 1
+	A.Push(p1)
+
+	time.Sleep(50 * time.Millisecond)
+
+	p("due to the hold-back, B should not have gotten anything, packet should have been held.")
+	cv.So(len(B.Swp.Recver.RecvHistory), cv.ShouldEqual, 0)
+
+	A.Push(p2)
+
+	time.Sleep(300 * time.Millisecond)
+
+	A.Stop()
+	B.Stop()
+
+	cv.Convey("Given two nodes A and B, if a packets 0 and 1 from A to B are reordered so as to arrive in order 1, 0; the sliding window protocol should correctly re-order and deliver them in order.", t, func() {
+		cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
+		//cv.So(B.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
+		cv.So(len(A.Swp.Sender.SendHistory), cv.ShouldEqual, 2)
+		cv.So(len(B.Swp.Recver.RecvHistory), cv.ShouldEqual, 2)
+		cv.So(HistoryEqual(A.Swp.Sender.SendHistory, B.Swp.Recver.RecvHistory), cv.ShouldBeTrue)
+	})
+}

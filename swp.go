@@ -106,7 +106,11 @@ var ErrShutdown = fmt.Errorf("shutting down")
 // Push sends a message packet, blocking until that is done.
 func (sess *Session) Push(pack *Packet) {
 	p("%v Push called", sess.MyInbox)
-	sess.Swp.Sender.BlockingSend <- pack
+	select {
+	case sess.Swp.Sender.BlockingSend <- pack:
+	case <-sess.Swp.Sender.ReqStop:
+		// give up, Sender is shutting down.
+	}
 }
 
 // InWindow returns true iff seqno is in [min, max].
@@ -170,6 +174,10 @@ type SimNet struct {
 
 	// simulate loss of the first packets
 	DiscardOnce Seqno
+
+	// simulate re-ordering of packets by setting this to 1
+	SimulateReorderNext int
+	heldBack            *Packet
 }
 
 // NewSimNet makes a network simulator. The
@@ -198,6 +206,19 @@ func (sim *SimNet) Send(pack *Packet) error {
 		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
 	}
 
+	switch sim.SimulateReorderNext {
+	case 0:
+		// do nothing
+	case 1:
+		sim.heldBack = pack
+		p("sim reordering: holding back pack SeqNum %v to %v", pack.SeqNum, pack.Dest)
+		sim.SimulateReorderNext++
+		return nil
+	default:
+		p("sim: setting SimulateReorderNext %v -> 0", sim.SimulateReorderNext)
+		sim.SimulateReorderNext = 0
+	}
+
 	if pack.SeqNum == sim.DiscardOnce {
 		p("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack.SeqNum, sim.DiscardOnce)
 		sim.DiscardOnce = -1
@@ -211,15 +232,23 @@ func (sim *SimNet) Send(pack *Packet) error {
 	} else {
 		p("sim: not lost. packet will arrive after %v", sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
-		go func(ch chan *Packet, pack *Packet) {
-			<-time.After(sim.Latency)
-			p("sim: packet %v with latency %v ready to deliver to node %v, trying...",
-				pack.SeqNum, sim.Latency, pack.Dest)
-			ch <- pack
-			p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
-		}(ch, pack)
+		go sendWithLatency(ch, pack, sim.Latency)
+		if sim.heldBack != nil {
+			p("sim: reordering now -- sending along heldBack packet %v to %v",
+				sim.heldBack.SeqNum, sim.heldBack.Dest)
+			go sendWithLatency(ch, sim.heldBack, sim.Latency+20*time.Millisecond)
+			sim.heldBack = nil
+		}
 	}
 	return nil
+}
+
+func sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
+	<-time.After(lat)
+	p("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
+		pack.SeqNum, lat, pack.Dest)
+	ch <- pack
+	p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
 }
 
 const resolution = 1 << 20
