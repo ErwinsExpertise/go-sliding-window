@@ -72,8 +72,9 @@ func (s *SenderState) Start() {
 
 		var acceptSend chan *Packet
 
-		// check for expired timers
+		// check for expired timers at wakeFreq
 		wakeFreq := 10 * time.Millisecond
+
 		regularIntervalWakeup := time.After(wakeFreq)
 
 	sendloop:
@@ -94,9 +95,31 @@ func (s *SenderState) Start() {
 			select {
 			case <-regularIntervalWakeup:
 				// have any of our packets timed-out and need to be
-				// resent?
+				// sent again?
+				if s.timerPq[0].slot == nil || s.timerPq[0].slot.Pack == nil {
+					p("no outstanding packets on wakeup.")
+					// just reset wakeup and keep going
+				} else {
+				doRetryLoop:
+					for s.timerPq[0].slot.RetryDeadline.Before(time.Now()) {
+						if s.timerPq[0].slot.Pack == nil || s.timerPq[0].slot.RetryDeadline.IsZero() {
+							// just ignore and contniue
+							s.timerPq.Pop()
+							continue doRetryLoop
+						}
+						// need to retry this guy
+						slot := s.timerPq[0].slot
 
+						// reset deadline and resend
+						slot.RetryDeadline = time.Now().Add(s.Timeout)
+						err := s.Net.Send(slot.Pack)
+						panicOn(err)
+					}
+
+				}
 				regularIntervalWakeup = time.After(wakeFreq)
+				p("reset the regularIntervalWakeup.")
+
 			case <-s.ReqStop:
 				close(s.Done)
 				return
@@ -107,7 +130,9 @@ func (s *SenderState) Start() {
 				p("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
 				lfs := s.LastFrameSent
-				slot := s.Txq[lfs%s.SenderWindowSize]
+				pos := lfs % s.SenderWindowSize
+				slot := s.Txq[pos]
+
 				pack.SeqNum = lfs
 				if pack.From != s.Inbox {
 					panic(fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
@@ -124,20 +149,24 @@ func (s *SenderState) Start() {
 
 			case a := <-s.GotAck:
 				// only an ack received - do sender side stuff
-				if !InWindow(a.AckNum, a.LAR+1, s.LastFrameSent) {
+				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					p("a.AckNum = %v outside sender's window [%v, %v], dropping it.",
-						a.AckNum, a.LAR+1, s.LastFrameSent)
+						a.AckNum, s.LastAckRec+1, s.LastFrameSent)
 					s.DiscardCount++
 					continue sendloop
 				}
 				p("packet.AckNum = %v inside sender's window, keeping it.", a.AckNum)
 				for {
 					s.LastAckRec++
-					slot := s.Txq[a.LAR%s.SenderWindowSize]
+					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
 					// lazily repair the timer heap to avoid O(n) operation each time.
 					// i.e. just ignore IsZero time entries, they are cancelled.
 					slot.RetryDeadline = time.Time{}
 					slot.Pack = nil
+					if s.timerPq[0].slot.Pack.SeqNum == a.AckNum {
+						// adjust pq
+						s.timerPq.Pop()
+					}
 
 					// release the send slot
 					s.slotsAvail++
