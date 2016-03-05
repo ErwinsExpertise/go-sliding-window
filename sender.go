@@ -130,6 +130,12 @@ func (s *SenderState) Start() {
 							s.timerPq.PopTop()
 							continue doRetryLoop
 						}
+						if s.timerPq.Slc[0].Pack.SeqNum <= s.LastAckRec {
+							p("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
+								s.LastAckRec, s.timerPq.Slc[0].Pack.SeqNum)
+							s.timerPq.PopTop()
+							continue doRetryLoop
+						}
 
 						// need to retry this guy
 						slot := s.timerPq.PopTop()
@@ -157,35 +163,7 @@ func (s *SenderState) Start() {
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
-				s.slotsAvail--
-				q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
-
-				s.LastFrameSent++
-				q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
-
-				lfs := s.LastFrameSent
-				s.SentButNotAcked[lfs] = true
-				pos := lfs % s.SenderWindowSize
-				slot := s.Txq[pos]
-
-				pack.SeqNum = lfs
-				if pack.From != s.Inbox {
-					panic(fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
-						pack.From, s.Inbox))
-				}
-				pack.From = s.Inbox
-				slot.Pack = pack
-
-				s.SendHistory = append(s.SendHistory, pack)
-				slot.RetryDeadline = time.Now().Add(s.Timeout)
-				q("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
-				s.timerPq.Add(slot)
-
-				err := s.Net.Send(slot.Pack)
-				panicOn(err)
-
-				//q("%v debug: after send of slot.Pack='%#v', here is our timerPq:", s.Inbox, slot.Pack)
-				//s.dumpTimerPq()
+				s.doSend(pack)
 
 			case a := <-s.GotAck:
 				p("%v sender GotAck a: %#v", s.Inbox, a)
@@ -222,8 +200,10 @@ func (s *SenderState) Start() {
 						s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
-				err := s.Net.Send(ackPack)
-				panicOn(err)
+				p("sender sees ackPack := <-s.SendAck: %#v", ackPack)
+				go func(ap *Packet) {
+					s.BlockingSend <- ap
+				}(ackPack)
 			}
 		}
 	}()
@@ -267,4 +247,36 @@ func (s *SenderState) dumpTimerPq() {
 	}
 	fmt.Printf("end Idx ===============\n")
 
+}
+
+func (s *SenderState) doSend(pack *Packet) {
+	s.slotsAvail--
+	q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
+
+	s.LastFrameSent++
+	q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
+
+	lfs := s.LastFrameSent
+	s.SentButNotAcked[lfs] = true
+	pos := lfs % s.SenderWindowSize
+	slot := s.Txq[pos]
+
+	pack.SeqNum = lfs
+	if pack.From != s.Inbox {
+		panic(fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
+			pack.From, s.Inbox))
+	}
+	pack.From = s.Inbox
+	slot.Pack = pack
+
+	s.SendHistory = append(s.SendHistory, pack)
+	slot.RetryDeadline = time.Now().Add(s.Timeout)
+	q("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
+	s.timerPq.Add(slot)
+
+	err := s.Net.Send(slot.Pack)
+	panicOn(err)
+
+	//q("%v debug: after send of slot.Pack='%#v', here is our timerPq:", s.Inbox, slot.Pack)
+	//s.dumpTimerPq()
 }

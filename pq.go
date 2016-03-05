@@ -47,14 +47,14 @@ func (pq PriorityQueue) Less(i, j int) bool {
 func (pq PriorityQueue) Swap(i, j int) {
 	// track location in Idx as well, for fast processing;
 	// so we can find our Pack by SeqNum in the queue.
-	n := len(pq.Slc) - 1
-	p("n = %v", n)
+	//n := len(pq.Slc) - 1
+	//p("n = %v", n)
 	iseq := pq.Slc[i].Pack.SeqNum
 	jseq := pq.Slc[j].Pack.SeqNum
-	p("iseq = %v", iseq)
-	p("jseq = %v", jseq)
-	p("pq.Slc[i=%v] = %#v", i, pq.Slc[i].Pack)
-	p("pq.Slc[j=%v] = %#v", j, pq.Slc[j].Pack)
+	//	p("iseq = %v", iseq)
+	//	p("jseq = %v", jseq)
+	//	p("pq.Slc[i=%v] = %#v", i, pq.Slc[i].Pack)
+	//	p("pq.Slc[j=%v] = %#v", j, pq.Slc[j].Pack)
 	pq.Idx[iseq] = j
 	pq.Idx[jseq] = i
 	pq.Slc[i], pq.Slc[j] = pq.Slc[j], pq.Slc[i]
@@ -63,6 +63,7 @@ func (pq PriorityQueue) Swap(i, j int) {
 // Users: DO NOT CALL THIS. use heap.Push(pg, x) instead.
 func (pq *PriorityQueue) Push(x interface{}) {
 	item := x.(*TxqSlot)
+	pq.Idx[item.Pack.SeqNum] = len(pq.Slc)
 	pq.Slc = append(pq.Slc, item)
 }
 
@@ -108,16 +109,14 @@ func (pq *PriorityQueue) Add(x *TxqSlot) {
 }
 
 func (pq *PriorityQueue) PopTop() *TxqSlot {
-	p("at top of PopTop()")
-	dumppq(pq)
-	//	if pq.Slc[0] != nil && pq.Slc[0].Pack != nil {
+	//p("at top of PopTop()")
+	//dumppq(pq)
 	sn := pq.Slc[0].Pack.SeqNum
 	delete(pq.Idx, sn)
-	p("PopTop is deleting sn %v", sn)
-	//	}
+	//p("PopTop is deleting sn %v", sn)
 	top := heap.Pop(pq).(*TxqSlot)
-	p("at bottom of PopTop()")
-	dumppq(pq)
+	//p("at bottom of PopTop()")
+	//dumppq(pq)
 	return top
 }
 
