@@ -78,15 +78,15 @@ func (r *RecvState) Start() error {
 						// Variation from the textbook algorithm: In the
 						// presence of packet loss, if we drop certain packets,
 						// the sender may re-try forever if we have non-overlapping windows.
-						// So we'll ack every 5th present known good values anyway,
-						// which relieves the livelock without being too chatty.
+						// So we'll ack out of bounds known good values anyway.
+						// We could also do every 5th discard, but we want to get
+						// the flow control ramp-up-from-zero correct and not acking
+						// may inhibit that.
 						q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
 							r.Inbox, pack.SeqNum, r.NextFrameExpected,
 							r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
-						if r.DiscardCount%5 == 0 {
-							r.ack(r.NextFrameExpected-1, pack.From)
-						}
+						r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop
 					}
 					slot.Received = true
