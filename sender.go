@@ -71,7 +71,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 // Start initiates the SenderState goroutine, which manages
 // sends, timeouts, and resends
 func (s *SenderState) Start() {
-	q("%v SenderStart Start() called.", s.Inbox)
+	//q("%v SenderStart Start() called.", s.Inbox)
 
 	go func() {
 		s.slotsAvail = s.SendSz
@@ -86,8 +86,8 @@ func (s *SenderState) Start() {
 
 	sendloop:
 		for {
-			q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
-				s.Inbox, s.LastAckRec, s.LastFrameSent)
+			//q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
+			//	s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// do we have capacity to accept a send?
 			// do a conditional receive
@@ -101,8 +101,8 @@ func (s *SenderState) Start() {
 
 			select {
 			case <-regularIntervalWakeup:
-				q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
-				//s.dumpTimerPq()
+				//q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
+				//s.dumpTimerP//q()
 
 				// have any of our packets timed-out and need to be
 				// sent again?
@@ -115,16 +115,16 @@ func (s *SenderState) Start() {
 			doRetryLoop:
 				for _, slot := range retry {
 					if slot.Pack == nil {
-						p("retry loop, slot = %#v", slot)
+						q("retry loop, slot = %#v", slot)
 					}
 					_, ok := s.SentButNotAcked[slot.Pack.SeqNum]
 					if !ok {
-						p("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
+						q("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
 							slot.Pack.SeqNum)
 						continue doRetryLoop
 					}
 					if slot.Pack.SeqNum <= s.LastAckRec {
-						p("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
+						q("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
 							s.LastAckRec, slot.Pack.SeqNum)
 						continue doRetryLoop
 					}
@@ -136,7 +136,7 @@ func (s *SenderState) Start() {
 					panicOn(err)
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
-				q("%v reset the regularIntervalWakeup.", s.Inbox)
+				//q("%v reset the regularIntervalWakeup.", s.Inbox)
 
 			case <-s.ReqStop:
 				close(s.Done)
@@ -145,16 +145,16 @@ func (s *SenderState) Start() {
 				s.doSend(pack)
 
 			case a := <-s.GotAck:
-				p("%v sender GotAck a: %#v", s.Inbox, a)
+				q("%v sender GotAck a: %#v", s.Inbox, a)
 				// only an ack received - do sender side stuff
 				delete(s.SentButNotAcked, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					p("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
+					q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
 						s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
 					s.DiscardCount++
 					continue sendloop
 				}
-				p("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
+				q("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
 				for {
 					s.LastAckRec++
 
@@ -162,7 +162,7 @@ func (s *SenderState) Start() {
 					delete(s.SentButNotAcked, s.LastAckRec)
 
 					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
-					p("%v ... slot = %#v", s.Inbox, slot)
+					q("%v ... slot = %#v", s.Inbox, slot)
 					//					if slot != nil {
 					//						slot.RetryDeadline = time.Time{}
 					//						slot.Pack = nil
@@ -171,11 +171,11 @@ func (s *SenderState) Start() {
 					// release the send slot
 					s.slotsAvail++
 					if s.LastAckRec == a.AckNum {
-						p("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
+						q("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
 							s.Inbox, s.LastAckRec, a.AckNum)
 						break
 					}
-					p("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
+					q("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
 						s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
@@ -232,10 +232,10 @@ func (s *SenderState) dumpTimerPq() {
 
 func (s *SenderState) doSend(pack *Packet) {
 	s.slotsAvail--
-	q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
+	//q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
 
 	s.LastFrameSent++
-	q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
+	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
 	lfs := s.LastFrameSent
 	pos := lfs % s.SenderWindowSize
@@ -252,7 +252,7 @@ func (s *SenderState) doSend(pack *Packet) {
 
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.RetryDeadline = time.Now().Add(s.Timeout)
-	q("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
+	//q("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
 	//s.timerPq.Add(slot)
 
 	err := s.Net.Send(slot.Pack)
