@@ -37,10 +37,8 @@ type Packet struct {
 
 // TxqSlot is the sender's sliding window element.
 type TxqSlot struct {
-	Timer          *time.Timer
-	TimerCancelled bool
-	Session        *Session
-	Pack           *Packet
+	RetryDeadline time.Time
+	Pack          *Packet
 }
 
 // RxqSlot is the receiver's sliding window element.

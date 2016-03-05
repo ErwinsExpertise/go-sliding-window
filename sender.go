@@ -6,11 +6,12 @@ import (
 	"time"
 )
 
+// AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
 	AckNum Seqno
-	LAR    Seqno
-	NFE    Seqno
-	RWS    Seqno
+	LAR    Seqno // LastAckReceived
+	NFE    Seqno // NextFrameExpected
+	RWS    Seqno // ReceiverWindowSize
 }
 
 // SenderState tracks the sender's sliding window state.
@@ -65,12 +66,17 @@ func (s *SenderState) Start() {
 
 		var acceptSend chan *Packet
 
+		// check for expired timers
+		wakeFreq := 10 * time.Millisecond
+		regularIntervalWakeup := time.After(wakeFreq)
+
 	sendloop:
 		for {
 			p("%v top of snedloop, sender LAR: %v, LFS: %v \n",
 				s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// do we have capacity to accept a send?
+			// do a conditional receive
 			if s.slotsAvail > 0 {
 				// yes
 				acceptSend = s.BlockingSend
@@ -80,6 +86,11 @@ func (s *SenderState) Start() {
 			}
 
 			select {
+			case <-regularIntervalWakeup:
+				// have any of our packets timed-out and need to be
+				// resent?
+
+				regularIntervalWakeup = time.After(wakeFreq)
 			case <-s.ReqStop:
 				close(s.Done)
 				return
@@ -100,12 +111,7 @@ func (s *SenderState) Start() {
 				slot.Pack = pack
 
 				s.SendHistory = append(s.SendHistory, pack)
-
-				// todo: start go routine that listens for this timeout
-				// most of this logic probably moves to that goroutine too.
-				slot.Timer = time.NewTimer(s.Timeout)
-				slot.TimerCancelled = false
-				// todo: where are the timeouts handled?
+				slot.RetryDeadline = time.Now().Add(s.Timeout)
 
 				err := s.Net.Send(slot.Pack)
 				panicOn(err)
@@ -122,8 +128,7 @@ func (s *SenderState) Start() {
 				for {
 					s.LastAckRec++
 					slot := s.Txq[a.LAR%s.SenderWindowSize]
-					slot.TimerCancelled = true
-					slot.Timer.Stop()
+					slot.RetryDeadline = time.Time{}
 					slot.Pack = nil
 
 					// release the send slot
