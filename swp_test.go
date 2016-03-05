@@ -54,7 +54,7 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 	lossProb := float64(0)
 	lat := time.Millisecond
 	net := NewSimNet(lossProb, lat)
-	net.DiscardUntil = Seqno(1)
+	net.DiscardOnce = Seqno(0)
 	rtt := 2 * lat
 
 	A, err := NewSession(net, "A", "B", 3, rtt)

@@ -169,7 +169,7 @@ type SimNet struct {
 	Latency  time.Duration
 
 	// simulate loss of the first packets
-	DiscardUntil Seqno
+	DiscardOnce Seqno
 }
 
 // NewSimNet makes a network simulator. The
@@ -177,9 +177,10 @@ type SimNet struct {
 // the packet getting lost on the network.
 func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 	return &SimNet{
-		Net:      make(map[string]chan *Packet),
-		LossProb: lossProb,
-		Latency:  latency,
+		Net:         make(map[string]chan *Packet),
+		LossProb:    lossProb,
+		Latency:     latency,
+		DiscardOnce: -1,
 	}
 }
 
@@ -197,8 +198,9 @@ func (sim *SimNet) Send(pack *Packet) error {
 		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
 	}
 
-	if pack.SeqNum < sim.DiscardUntil {
-		p("sim: packet lost because %v SeqNum < DiscardUntil (%v)", pack.SeqNum, sim.DiscardUntil)
+	if pack.SeqNum == sim.DiscardOnce {
+		p("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack.SeqNum, sim.DiscardOnce)
+		sim.DiscardOnce = -1
 		return nil
 	}
 
@@ -265,6 +267,7 @@ func (s *SWP) Stop() {
 
 // Start the sliding window protocol
 func (s *SWP) Start() {
+	p("SWP Start() called")
 	s.Recver.Start()
 	s.Sender.Start()
 }

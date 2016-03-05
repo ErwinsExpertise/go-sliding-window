@@ -67,6 +67,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 // Start initiates the SenderState goroutine, which manages
 // sends, timeouts, and resends
 func (s *SenderState) Start() {
+	p("%v SenderStart Start() called.", s.Inbox)
+
 	go func() {
 		s.slotsAvail = s.SendSz
 
@@ -94,16 +96,16 @@ func (s *SenderState) Start() {
 
 			select {
 			case <-regularIntervalWakeup:
-				p("regularIntervalWakeup at %v", time.Now())
+				p("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
 				s.dumpTimerPq()
 
 				// have any of our packets timed-out and need to be
 				// sent again?
 				if s.timerPq[0] == nil || s.timerPq[0].Pack == nil {
-					p("no outstanding packets on wakeup.")
+					p("%v no outstanding packets on wakeup.", s.Inbox)
 					// just reset wakeup and keep going
 				} else {
-					p("we have outstanding packets.")
+					p("%v we have outstanding packets.", s.Inbox)
 				doRetryLoop:
 					for s.timerPq[0].RetryDeadline.Before(time.Now()) {
 						if s.timerPq[0].Pack == nil || s.timerPq[0].RetryDeadline.IsZero() {
@@ -114,25 +116,25 @@ func (s *SenderState) Start() {
 						// need to retry this guy
 						slot := s.timerPq[0]
 
-						p("we have timed-out packets that need to be retried")
+						p("%v we have timed-out packet that needs to be retried: %#v", s.Inbox, slot)
 
 						// reset deadline and resend
 						slot.RetryDeadline = time.Now().Add(s.Timeout)
-						s.timerPq.Push(slot)
+						heap.Push(&s.timerPq, slot)
 						err := s.Net.Send(slot.Pack)
 						panicOn(err)
 					}
 
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
-				p("reset the regularIntervalWakeup.")
+				p("%v reset the regularIntervalWakeup.", s.Inbox)
 
 			case <-s.ReqStop:
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
 				s.slotsAvail--
-				p("sender in acceptSend, now %v slotsAvail", s.slotsAvail)
+				p("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
 
 				s.LastFrameSent++
 				p("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
@@ -151,21 +153,24 @@ func (s *SenderState) Start() {
 
 				s.SendHistory = append(s.SendHistory, pack)
 				slot.RetryDeadline = time.Now().Add(s.Timeout)
-				p("sender set retry deadline to %v", slot.RetryDeadline)
-				s.timerPq.Push(slot)
+				p("%v sender set retry deadline to %v", s.Inbox, slot.RetryDeadline)
+				heap.Push(&s.timerPq, slot)
 
 				err := s.Net.Send(slot.Pack)
 				panicOn(err)
 
+				p("%v debug: after send of slot.Pack='%#v', here is our timerPq:", s.Inbox, slot.Pack)
+				s.dumpTimerPq()
+
 			case a := <-s.GotAck:
 				// only an ack received - do sender side stuff
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					p("a.AckNum = %v outside sender's window [%v, %v], dropping it.",
-						a.AckNum, s.LastAckRec+1, s.LastFrameSent)
+					p("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
+						s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
 					s.DiscardCount++
 					continue sendloop
 				}
-				p("packet.AckNum = %v inside sender's window, keeping it.", a.AckNum)
+				p("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
 				for {
 					s.LastAckRec++
 					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
@@ -219,11 +224,14 @@ func (s *SenderState) dumpTimerPq() {
 	for i := range s.timerPq {
 		if s.timerPq[i] != nil && s.timerPq[i].Pack != nil {
 			n++
-			fmt.Printf("s.timerPq[%v] at  %v  seqnum: %v\n",
-				i, s.timerPq[i].RetryDeadline, s.timerPq[i].Pack.SeqNum)
+			fmt.Printf("%v s.timerPq[%v] at  %v  seqnum: %v\n",
+				s.Inbox, i, s.timerPq[i].RetryDeadline, s.timerPq[i].Pack.SeqNum)
+		} else {
+			fmt.Printf("%v s.timerPq[%v] is %#v\n",
+				s.Inbox, i, s.timerPq[i])
 		}
 	}
 	if n == 0 {
-		fmt.Printf("s.timerPq is empty")
+		fmt.Printf("%v s.timerPq is empty", s.Inbox)
 	}
 }
