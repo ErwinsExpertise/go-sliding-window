@@ -75,7 +75,7 @@ func (s *SenderState) Start() {
 		var acceptSend chan *Packet
 
 		// check for expired timers at wakeFreq
-		wakeFreq := 100 * time.Millisecond
+		wakeFreq := s.Timeout / 2
 
 		regularIntervalWakeup := time.After(wakeFreq)
 
