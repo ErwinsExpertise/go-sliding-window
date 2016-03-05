@@ -74,11 +74,15 @@ func (r *RecvState) Start() error {
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
-						// drop the packet
+						// variation from the textbook algorithm: In the
+						// presence of packet loss, if we drop the packet,
+						// the sender may re-try forever,
+						// So we'll ack our present known good values anyway.
 						p("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
 							r.Inbox, pack.SeqNum, r.NextFrameExpected,
 							r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
+						r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop
 					}
 					slot.Received = true
@@ -101,16 +105,7 @@ func (r *RecvState) Start() error {
 							r.NextFrameExpected++
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 						}
-						q("%v about to send ack with AckNum: %v to %v",
-							r.Inbox, r.NextFrameExpected-1, pack.From)
-						// send ack
-						ack := &Packet{
-							From:    r.Inbox,
-							Dest:    pack.From,
-							AckNum:  r.NextFrameExpected - 1,
-							AckOnly: true,
-						}
-						r.snd.SendAck <- ack
+						r.ack(r.NextFrameExpected-1, pack.From)
 					} else {
 						q("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
 							r.Inbox, pack.SeqNum, r.NextFrameExpected)
@@ -122,14 +117,28 @@ func (r *RecvState) Start() error {
 	return nil
 }
 
-// Stop the RecvState componennt
-func (s *RecvState) Stop() {
-	s.mut.Lock()
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
+// ack is a helper function, used in the recvloop above
+func (r *RecvState) ack(seqno Seqno, dest string) {
+	q("%v about to send ack with AckNum: %v to %v",
+		r.Inbox, seqno, dest)
+	// send ack
+	ack := &Packet{
+		From:    r.Inbox,
+		Dest:    dest,
+		AckNum:  seqno,
+		AckOnly: true,
 	}
-	s.mut.Unlock()
-	<-s.Done
+	r.snd.SendAck <- ack
+}
+
+// Stop the RecvState componennt
+func (r *RecvState) Stop() {
+	r.mut.Lock()
+	select {
+	case <-r.ReqStop:
+	default:
+		close(r.ReqStop)
+	}
+	r.mut.Unlock()
+	<-r.Done
 }
