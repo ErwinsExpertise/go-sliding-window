@@ -179,10 +179,10 @@ func (s *SenderState) Start() {
 						s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
-				p("sender sees ackPack := <-s.SendAck: %#v", ackPack)
-				go func(ap *Packet) {
-					s.BlockingSend <- ap
-				}(ackPack)
+				// don't go though the BlockingSend protocol; since
+				// could effectively livelock us.
+				err := s.Net.Send(ackPack)
+				panicOn(err)
 			}
 		}
 	}()

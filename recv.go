@@ -83,7 +83,7 @@ func (r *RecvState) Start() error {
 							r.Inbox, pack.SeqNum, r.NextFrameExpected,
 							r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
-						r.ack(r.NextFrameExpected-1, pack.From)
+						//r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop
 					}
 					slot.Received = true
@@ -120,12 +120,13 @@ func (r *RecvState) Start() error {
 
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
-	q("%v about to send ack with AckNum: %v to %v",
+	p("%v about to send ack with AckNum: %v to %v",
 		r.Inbox, seqno, dest)
 	// send ack
 	ack := &Packet{
 		From:    r.Inbox,
 		Dest:    dest,
+		SeqNum:  -99, // => ack flag
 		AckNum:  seqno,
 		AckOnly: true,
 	}

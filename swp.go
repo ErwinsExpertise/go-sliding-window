@@ -257,7 +257,7 @@ func sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
 	p("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
 		pack.SeqNum, lat, pack.Dest)
 	ch <- pack
-	p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+	//p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
 }
 
 const resolution = 1 << 20
