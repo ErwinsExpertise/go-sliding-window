@@ -79,7 +79,7 @@ func (s *SenderState) Start() {
 
 	sendloop:
 		for {
-			p("%v top of snedloop, sender LAR: %v, LFS: %v \n",
+			p("%v top of sendloop, sender LAR: %v, LFS: %v \n",
 				s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// do we have capacity to accept a send?
@@ -94,24 +94,31 @@ func (s *SenderState) Start() {
 
 			select {
 			case <-regularIntervalWakeup:
+				p("regularIntervalWakeup at %v", time.Now())
+				s.dumpTimerPq()
+
 				// have any of our packets timed-out and need to be
 				// sent again?
-				if s.timerPq[0].slot == nil || s.timerPq[0].slot.Pack == nil {
+				if s.timerPq[0] == nil || s.timerPq[0].Pack == nil {
 					p("no outstanding packets on wakeup.")
 					// just reset wakeup and keep going
 				} else {
+					p("we have outstanding packets.")
 				doRetryLoop:
-					for s.timerPq[0].slot.RetryDeadline.Before(time.Now()) {
-						if s.timerPq[0].slot.Pack == nil || s.timerPq[0].slot.RetryDeadline.IsZero() {
+					for s.timerPq[0].RetryDeadline.Before(time.Now()) {
+						if s.timerPq[0].Pack == nil || s.timerPq[0].RetryDeadline.IsZero() {
 							// just ignore and contniue
 							s.timerPq.Pop()
 							continue doRetryLoop
 						}
 						// need to retry this guy
-						slot := s.timerPq[0].slot
+						slot := s.timerPq[0]
+
+						p("we have timed-out packets that need to be retried")
 
 						// reset deadline and resend
 						slot.RetryDeadline = time.Now().Add(s.Timeout)
+						s.timerPq.Push(slot)
 						err := s.Net.Send(slot.Pack)
 						panicOn(err)
 					}
@@ -125,6 +132,7 @@ func (s *SenderState) Start() {
 				return
 			case pack := <-acceptSend:
 				s.slotsAvail--
+				p("sender in acceptSend, now %v slotsAvail", s.slotsAvail)
 
 				s.LastFrameSent++
 				p("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
@@ -143,6 +151,8 @@ func (s *SenderState) Start() {
 
 				s.SendHistory = append(s.SendHistory, pack)
 				slot.RetryDeadline = time.Now().Add(s.Timeout)
+				p("sender set retry deadline to %v", slot.RetryDeadline)
+				s.timerPq.Push(slot)
 
 				err := s.Net.Send(slot.Pack)
 				panicOn(err)
@@ -163,7 +173,7 @@ func (s *SenderState) Start() {
 					// i.e. just ignore IsZero time entries, they are cancelled.
 					slot.RetryDeadline = time.Time{}
 					slot.Pack = nil
-					if s.timerPq[0].slot.Pack.SeqNum == a.AckNum {
+					if s.timerPq[0].Pack.SeqNum == a.AckNum {
 						// adjust pq
 						s.timerPq.Pop()
 					}
@@ -198,11 +208,22 @@ func (s *SenderState) initPriorityQ() {
 
 	s.timerPq = make(PriorityQueue, s.SendSz)
 	for i, p := range s.Txq {
-		s.timerPq[i] = &PqEle{
-			slot:  p,
-			index: i,
-		}
+		s.timerPq[i] = p
 	}
 
 	heap.Init(&s.timerPq)
+}
+
+func (s *SenderState) dumpTimerPq() {
+	n := 0
+	for i := range s.timerPq {
+		if s.timerPq[i] != nil && s.timerPq[i].Pack != nil {
+			n++
+			fmt.Printf("s.timerPq[%v] at  %v  seqnum: %v\n",
+				i, s.timerPq[i].RetryDeadline, s.timerPq[i].Pack.SeqNum)
+		}
+	}
+	if n == 0 {
+		fmt.Printf("s.timerPq is empty")
+	}
 }
