@@ -83,7 +83,9 @@ func (r *RecvState) Start() error {
 							r.Inbox, pack.SeqNum, r.NextFrameExpected,
 							r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
-						//r.ack(r.NextFrameExpected-1, pack.From)
+						if r.DiscardCount%5 == 0 {
+							r.ack(r.NextFrameExpected-1, pack.From)
+						}
 						continue recvloop
 					}
 					slot.Received = true
