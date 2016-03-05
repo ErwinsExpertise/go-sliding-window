@@ -105,7 +105,7 @@ var ErrShutdown = fmt.Errorf("shutting down")
 
 // Push sends a message packet, blocking until that is done.
 func (sess *Session) Push(pack *Packet) {
-	p("%v Push called", sess.MyInbox)
+	q("%v Push called", sess.MyInbox)
 	select {
 	case sess.Swp.Sender.BlockingSend <- pack:
 	case <-sess.Swp.Sender.ReqStop:
@@ -158,7 +158,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 
 // Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet) error {
-	p("in NatsNet.Send(pack=%#v)", *pack)
+	q("in NatsNet.Send(pack=%#v)", *pack)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err
@@ -199,7 +199,7 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 }
 
 func (sim *SimNet) Send(pack *Packet) error {
-	p("in SimNet.Send(pack=%#v)", *pack)
+	q("in SimNet.Send(pack=%#v)", *pack)
 
 	ch, ok := sim.Net[pack.Dest]
 	if !ok {
@@ -296,7 +296,7 @@ func (s *SWP) Stop() {
 
 // Start the sliding window protocol
 func (s *SWP) Start() {
-	p("SWP Start() called")
+	q("SWP Start() called")
 	s.Recver.Start()
 	s.Sender.Start()
 }
