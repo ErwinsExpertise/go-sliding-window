@@ -231,7 +231,7 @@ func (sim *SimNet) Send(pack *Packet) error {
 	pr := cryptoProb()
 	isLost := pr <= sim.LossProb
 	if sim.LossProb > 0 && isLost {
-		p("sim: packet lost %v to %v", pack.SeqNum, pack.Dest)
+		p("sim: bam! packet-lost! %v to %v", pack.SeqNum, pack.Dest)
 	} else {
 		p("sim: %v to %v: not lost. packet will arrive after %v", pack.SeqNum, pack.Dest, sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.

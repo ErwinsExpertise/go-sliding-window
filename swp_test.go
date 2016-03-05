@@ -181,9 +181,11 @@ func Test004DuplicatedPacketIsDiscarded(t *testing.T) {
 
 func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 
-	lossProb := float64(0.10)
+	// works quickly even with 20% packet loss:
+	lossProb := float64(0.20)
+	//	lossProb := float64(0.10)
 	//	lossProb := float64(0.05)
-	//lossProb := float64(0)
+	//  lossProb := float64(0)
 	lat := 1 * time.Millisecond
 	net := NewSimNet(lossProb, lat)
 	rtt := 3 * lat
