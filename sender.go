@@ -1,6 +1,7 @@
 package swp
 
 import (
+	"container/heap"
 	"fmt"
 	"sync"
 	"time"
@@ -37,10 +38,12 @@ type SenderState struct {
 	slotsAvail   int64
 	SendAck      chan *Packet
 	DiscardCount int64
+
+	timerPq PriorityQueue
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox string) *SenderState {
-	return &SenderState{
+	s := &SenderState{
 		Net:              net,
 		Inbox:            inbox,
 		SenderWindowSize: Seqno(sendSz),
@@ -56,6 +59,9 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		GotAck:           make(chan AckStatus),
 		SendAck:          make(chan *Packet),
 	}
+
+	s.initPriorityQ()
+	return s
 }
 
 // Start initiates the SenderState goroutine, which manages
@@ -128,6 +134,8 @@ func (s *SenderState) Start() {
 				for {
 					s.LastAckRec++
 					slot := s.Txq[a.LAR%s.SenderWindowSize]
+					// lazily repair the timer heap to avoid O(n) operation each time.
+					// i.e. just ignore IsZero time entries, they are cancelled.
 					slot.RetryDeadline = time.Time{}
 					slot.Pack = nil
 
@@ -155,4 +163,17 @@ func (s *SenderState) Stop() {
 	}
 	s.mut.Unlock()
 	<-s.Done
+}
+
+func (s *SenderState) initPriorityQ() {
+
+	s.timerPq = make(PriorityQueue, s.SendSz)
+	for i, p := range s.Txq {
+		s.timerPq[i] = &PqEle{
+			slot:  p,
+			index: i,
+		}
+	}
+
+	heap.Init(&s.timerPq)
 }

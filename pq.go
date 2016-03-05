@@ -21,6 +21,14 @@ type PriorityQueue []*PqEle
 func (pq PriorityQueue) Len() int { return len(pq) }
 
 func (pq PriorityQueue) Less(i, j int) bool {
+	// nil Packets sort to end as well
+	if pq[i].slot == nil {
+		return false
+	}
+	if pq[j].slot == nil {
+		return true
+	}
+
 	// sort 0's to the end, no deadline.
 	if pq[i].slot.RetryDeadline.IsZero() {
 		return false
