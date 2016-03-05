@@ -13,7 +13,9 @@ import (
 	"os"
 )
 
-func setupTest() {
+// not meant to be run on its own, but shows an example
+// of all the setup and teardown in a test.
+func exampleSetup_test() {
 	origdir, tempdir := MakeAndMoveToTempDir() // cd to tempdir
 	p("origdir = '%s'", origdir)
 	p("tempdir = '%s'", tempdir)
@@ -29,14 +31,14 @@ func setupTest() {
 	gnatsdUrl := fmt.Sprintf("nats://%v:%v", host, port)
 
 	subj := "my-topic"
-	subscriber := StartSubscriber(gnatsdUrl, subj)
-	//	defer subscriber.Close()
+	sub := StartSubscriber("B-subscriber", gnatsdUrl, subj)
+	defer sub.Close()
 
-	publisher := StartPublisher(gnatsdUrl, subj)
-	//	defer publisher.Close()
+	pub := StartPublisher("A-publisher", gnatsdUrl, subj)
+	defer pub.Close()
 
-	p("sub = %#v", subscriber)
-	p("pub = %#v", publisher)
+	p("sub = %#v", sub)
+	p("pub = %#v", pub)
 }
 
 func MakeAndMoveToTempDir() (origdir string, tmpdir string) {
@@ -113,49 +115,74 @@ func PortIsBound(addr string) bool {
 
 type Pub struct {
 	Nc           *nats.Conn
-	Sub          *nats.Subscription
+	Scrip        *nats.Subscription
 	MsgArrivalCh chan *nats.Msg
 	Cfg          NatsConfig
 	Subject      string
 }
 
-func StartPublisher(serverList string, subject string) *Pub {
-	// start client
-	asyncHandler := nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
-		fmt.Printf("\n *** async error handler sees error: '%s'\n", e)
-		panic(e)
-	})
-	p("about to connect with client")
-	nc, err := nats.Connect(serverList, asyncHandler)
+func StartPublisher(myname string, serverList string, subject string) *Pub {
+	pub := &Pub{
+		MsgArrivalCh: make(chan *nats.Msg),
+	}
+	pub.Cfg.ServerList = serverList
+	pub.Cfg.AyncErrPanics = true
+	pub.Cfg.Init(myname)
+	pub.Subject = subject
+
+	nc, err := nats.Connect(serverList, pub.Cfg.opts...)
 	panicOn(err)
-	p("nc client connection succeeded.")
+	p("publisher client connection succeeded.")
+	pub.Nc = nc
 
-	//	err = fm.Subscribe(subject, ch, &fm.archiveSub, true)
-	//	panicOn(err)
+	pub.Scrip, err = nc.Subscribe(subject, func(msg *nats.Msg) {
+		pub.MsgArrivalCh <- msg
+	})
+	panicOn(err)
+	return pub
+}
 
-	return &Pub{Nc: nc}
+func (s *Pub) Close() {
+	err := s.Scrip.Unsubscribe()
+	panicOn(err)
+	s.Nc.Close()
 }
 
 type Sub struct {
 	Nc           *nats.Conn
-	Sub          *nats.Subscription
+	Scrip        *nats.Subscription
 	MsgArrivalCh chan *nats.Msg
 	Cfg          NatsConfig
 	Subject      string
 }
 
-func StartSubscriber(serverList string, subject string) *Sub {
-	// start client
-	asyncHandler := nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
-		fmt.Printf("\n *** async error handler sees error: '%s'\n", e)
-		panic(e)
-	})
-	p("about to connect with client")
-	nc, err := nats.Connect(serverList, asyncHandler)
-	panicOn(err)
-	p("nc client connection succeeded.")
+func StartSubscriber(myname string, serverList string, subject string) *Sub {
+	sub := &Sub{
+		MsgArrivalCh: make(chan *nats.Msg),
+	}
+	sub.Cfg.ServerList = serverList
+	sub.Cfg.AyncErrPanics = true
+	sub.Cfg.Init(myname)
+	sub.Subject = subject
 
-	return &Sub{Nc: nc}
+	// start client
+	nc, err := nats.Connect(serverList, sub.Cfg.opts...)
+	panicOn(err)
+	p("subscriber client connection succeeded.")
+	sub.Nc = nc
+
+	sub.Scrip, err = nc.Subscribe(subject, func(msg *nats.Msg) {
+		sub.MsgArrivalCh <- msg
+	})
+	panicOn(err)
+
+	return sub
+}
+
+func (s *Sub) Close() {
+	err := s.Scrip.Unsubscribe()
+	panicOn(err)
+	s.Nc.Close()
 }
 
 type asyncErr struct {
@@ -170,18 +197,20 @@ type NatsConfig struct {
 	NatsConnDisconCh chan *nats.Conn
 	NatsConnReconCh  chan *nats.Conn
 
-	// nats async handlers and options
-	opts []nats.Option
-
+	opts  []nats.Option
 	certs certConfig
 
-	SkipTLS bool
+	ServerList string
+	SkipTLS    bool
+	NatsName   string
 
-	NatsName string
+	// helpful for test code to auto-crash on error
+	AyncErrPanics bool
 }
 
-func (cfg *NatsConfig) SetupNatsConfig(name string) {
+func (cfg *NatsConfig) Init(name string) {
 
+	cfg.SkipTLS = true // for testing, not prod.
 	cfg.NatsName = name
 
 	if !cfg.SkipTLS && !cfg.certs.skipTLS {
@@ -197,6 +226,9 @@ func (cfg *NatsConfig) SetupNatsConfig(name string) {
 	o = append(o, nats.Name(cfg.NatsName))
 
 	o = append(o, nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
+		if cfg.AyncErrPanics {
+			panic(e)
+		}
 		cfg.NatsAsyncErrCh <- asyncErr{conn: c, sub: s, err: e}
 	}))
 	o = append(o, nats.DisconnectHandler(func(conn *nats.Conn) {
