@@ -146,6 +146,7 @@ func (s *Pub) Close() {
 	err := s.Scrip.Unsubscribe()
 	panicOn(err)
 	s.Nc.Close()
+	p("pub unsubscribe and close done")
 }
 
 type Sub struct {
@@ -183,6 +184,7 @@ func (s *Sub) Close() {
 	err := s.Scrip.Unsubscribe()
 	panicOn(err)
 	s.Nc.Close()
+	p("sub unsubscribe and close done")
 }
 
 type asyncErr struct {
