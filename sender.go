@@ -8,10 +8,11 @@ import (
 
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
-	AckNum Seqno
-	LAR    Seqno // LastAckReceived
-	NFE    Seqno // NextFrameExpected
-	RWS    Seqno // ReceiverWindowSize
+	AckNum            Seqno
+	LAR               Seqno // LastAckReceived
+	NFE               Seqno // NextFrameExpected
+	RWS               Seqno // ReceiverWindowSize
+	AckCameWithPacket Seqno
 }
 
 // SenderState tracks the sender's sliding window state.
@@ -241,11 +242,11 @@ func (s *SenderState) dumpTimerPq() {
 		fmt.Printf("%v s.timerPq is empty", s.Inbox)
 	}
 
-	fmt.Printf("begin Idx ===============\n")
+	fmt.Printf("%v begin Idx ===============\n", s.Inbox)
 	for k, v := range s.timerPq.Idx {
-		fmt.Printf("SeqNum %v -> position %v\n", k, v)
+		fmt.Printf("%v SeqNum %v -> position %v\n", s.Inbox, k, v)
 	}
-	fmt.Printf("end Idx ===============\n")
+	fmt.Printf("%v end Idx ===============\n", s.Inbox)
 
 }
 

@@ -96,7 +96,7 @@ func (pq *PriorityQueue) Add(x *TxqSlot) {
 		heap.Fix(pq, where)
 		return
 	}
-	p("seqnum %v not already found", x.Pack.SeqNum)
+	p("seqnum %v not already found in PriorityQueue", x.Pack.SeqNum)
 	n := len(pq.Slc)
 	pq.Slc = append(pq.Slc, x)
 	pq.Idx[x.Pack.SeqNum] = n

@@ -189,6 +189,7 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	A, err := NewSession(net, "A", "B", 3, rtt)
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, rtt)
+	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
 	n := 100

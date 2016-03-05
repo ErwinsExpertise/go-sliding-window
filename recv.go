@@ -66,9 +66,10 @@ func (r *RecvState) Start() error {
 				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				if pack.AckOnly {
 					r.snd.GotAck <- AckStatus{
-						AckNum: pack.AckNum,
-						NFE:    r.NextFrameExpected,
-						RWS:    r.RecvWindowSize,
+						AckNum:            pack.AckNum,
+						NFE:               r.NextFrameExpected,
+						RWS:               r.RecvWindowSize,
+						AckCameWithPacket: pack.SeqNum,
 					}
 				} else {
 					// actual data received, receiver side stuff:
