@@ -109,7 +109,10 @@ func (pq *PriorityQueue) Add(x *TxqSlot) {
 }
 
 func (pq *PriorityQueue) PopTop() *TxqSlot {
-	//p("at top of PopTop()")
+	if len(pq.Slc) == 0 {
+		panic("PopTop on an empty pq!")
+	}
+	p("at top of PopTop(), len = %v", len(pq.Slc))
 	//dumppq(pq)
 	sn := pq.Slc[0].Pack.SeqNum
 	delete(pq.Idx, sn)

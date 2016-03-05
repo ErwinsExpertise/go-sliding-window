@@ -39,7 +39,7 @@ type SenderState struct {
 	SendAck      chan *Packet
 	DiscardCount int64
 
-	timerPq         *PriorityQueue
+	timerPq         *PQ
 	SentButNotAcked map[Seqno]bool
 }
 
@@ -59,8 +59,9 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		SendSz:           sendSz,
 		GotAck:           make(chan AckStatus),
 		SendAck:          make(chan *Packet),
-		timerPq:          NewPriorityQueue(sendSz),
-		SentButNotAcked:  make(map[Seqno]bool),
+		//timerPq:          NewPriorityQueue(sendSz),
+		timerPq:         NewPQ(sendSz),
+		SentButNotAcked: make(map[Seqno]bool),
 	}
 
 	s.initPriorityQ()
@@ -223,7 +224,7 @@ func (s *SenderState) Stop() {
 }
 
 func (s *SenderState) initPriorityQ() {
-	s.timerPq.Max = int(s.SendSz)
+	s.timerPq.Max = s.SendSz
 }
 
 func (s *SenderState) dumpTimerPq() {
