@@ -44,6 +44,17 @@ type SenderState struct {
 	keepAlive         <-chan time.Time
 
 	SentButNotAcked map[Seqno]*TxqSlot
+
+	// flow control params
+	MaxSendBuffer   int64
+	LastByteSent    int64
+	LastByteAcked   int64
+	LastByteWritten int64
+
+	LastSeenAdvertisedWindow int64
+
+	// EffectiveWindow = AdvertisedWindow - (LastByteSent - LastByteAcked)
+	EffectiveWindow int64
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,

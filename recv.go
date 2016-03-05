@@ -25,6 +25,14 @@ type RecvState struct {
 	DiscardCount int64
 
 	snd *SenderState
+
+	// flow control params
+	MaxRecvBuffer    int64
+	LastByteRead     int64
+	LastByteRcvd     int64
+	NextByteExpected int64
+
+	LastAdvertisedWindow int64
 }
 
 // NewRecvState makes a new RecvState manager.
