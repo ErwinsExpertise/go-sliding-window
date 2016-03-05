@@ -3,10 +3,9 @@ package swp
 import (
 	"fmt"
 	"time"
-	//"os"
-	"testing"
 
 	cv "github.com/glycerine/goconvey/convey"
+	"testing"
 )
 
 // check for:
@@ -15,6 +14,9 @@ import (
 // duplicate receives - discard the 2nd one.
 // out of order receives - reorder correctly.
 //
+// And flow control - client consumer buffers never overflow.
+//
+
 func Test001Network(t *testing.T) {
 
 	lossProb := float64(0)
@@ -216,6 +218,9 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	A.Stop()
 	B.Stop()
 
+	smy := net.Summary()
+	smy.Print()
+
 	cv.Convey("Given two nodes A and B, even if the network is noisy, the SWP should eventually deliver our sequence in order.", t, func() {
 		//cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		//cv.So(B.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
@@ -225,13 +230,24 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	})
 }
 
-func Test008ProvidesFlowControlToThrottleOverbearingSenders(t *testing.T) {
+func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
-	// works quickly even with 20% packet loss:
-	lossProb := float64(0.20)
-	//	lossProb := float64(0.10)
-	//	lossProb := float64(0.05)
-	//  lossProb := float64(0)
+	// Given a consumer able to read at 1k messages/sec,
+	// and a producer able to produce at 5k messages/sec,
+	// we should see bandwidth across the network at the
+	// rate at which the consumer allows via flow-control.
+	// i.e.
+	// consumer reads at a fixed 20% of the rate at which the
+	// producer can produce, then we should see the producer
+	// only sending at that 20% rate.
+	//
+	// implications:
+	// and so we should see the internal buffers staying
+	// within range. we should never get an error from
+	// nats saying that the buffers have overflowed and
+	// messages have been dropped.
+
+	lossProb := float64(0)
 	lat := 1 * time.Millisecond
 	net := NewSimNet(lossProb, lat)
 	rtt := 3 * lat

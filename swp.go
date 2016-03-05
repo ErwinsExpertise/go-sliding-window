@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/nats-io/nats"
+	"sync"
 	"time"
 )
 
@@ -176,6 +177,10 @@ type SimNet struct {
 	LossProb float64
 	Latency  time.Duration
 
+	TotalSent map[string]int64
+	TotalRcvd map[string]int64
+	mapMut    sync.Mutex
+
 	// simulate loss of the first packets
 	DiscardOnce Seqno
 
@@ -196,6 +201,8 @@ func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 		LossProb:    lossProb,
 		Latency:     latency,
 		DiscardOnce: -1,
+		TotalSent:   make(map[string]int64),
+		TotalRcvd:   make(map[string]int64),
 	}
 }
 
@@ -207,6 +214,10 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 
 func (sim *SimNet) Send(pack *Packet) error {
 	//q("in SimNet.Send(pack=%#v)", *pack)
+
+	sim.mapMut.Lock()
+	sim.TotalSent[pack.From]++
+	sim.mapMut.Unlock()
 
 	ch, ok := sim.Net[pack.Dest]
 	if !ok {
@@ -239,29 +250,33 @@ func (sim *SimNet) Send(pack *Packet) error {
 	} else {
 		q("sim: %v to %v: not lost. packet will arrive after %v", pack.SeqNum, pack.Dest, sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
-		go sendWithLatency(ch, pack, sim.Latency)
+		go sim.sendWithLatency(ch, pack, sim.Latency)
 		if sim.heldBack != nil {
 			q("sim: reordering now -- sending along heldBack packet %v to %v",
 				sim.heldBack.SeqNum, sim.heldBack.Dest)
-			go sendWithLatency(ch, sim.heldBack, sim.Latency+20*time.Millisecond)
+			go sim.sendWithLatency(ch, sim.heldBack, sim.Latency+20*time.Millisecond)
 			sim.heldBack = nil
 		}
 
 		if sim.DuplicateNext {
 			sim.DuplicateNext = false
-			go sendWithLatency(ch, pack, sim.Latency)
+			go sim.sendWithLatency(ch, pack, sim.Latency)
 		}
 
 	}
 	return nil
 }
 
-func sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
+func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
 	<-time.After(lat)
 	q("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
 		pack.SeqNum, lat, pack.Dest)
 	ch <- pack
 	//p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+
+	sim.mapMut.Lock()
+	sim.TotalRcvd[pack.Dest]++
+	sim.mapMut.Unlock()
 }
 
 const resolution = 1 << 20
@@ -312,4 +327,35 @@ func (s *SWP) Start() {
 	//q("SWP Start() called")
 	s.Recver.Start()
 	s.Sender.Start()
+}
+
+type Sum struct {
+	ObsKeepRateFromA float64
+	ObsKeepRateFromB float64
+	tsa              int64
+	tra              int64
+	tsb              int64
+	trb              int64
+}
+
+func (net *SimNet) Summary() *Sum {
+	net.mapMut.Lock()
+	defer net.mapMut.Unlock()
+
+	s := &Sum{
+		ObsKeepRateFromA: float64(net.TotalRcvd["B"]) / float64(net.TotalSent["A"]),
+		ObsKeepRateFromB: float64(net.TotalRcvd["A"]) / float64(net.TotalSent["B"]),
+		tsa:              net.TotalSent["A"],
+		tra:              net.TotalRcvd["A"],
+		tsb:              net.TotalSent["B"],
+		trb:              net.TotalRcvd["B"],
+	}
+	return s
+}
+
+func (s *Sum) Print() {
+	p("summary: packets A sent %v   -> B packets rcvd %v  [kept %.03f%%, lost %.03f%%]",
+		s.tsa, s.trb, s.ObsKeepRateFromA, 1.0-s.ObsKeepRateFromA)
+	p("summary: packets B sent %v   -> A packets rcvd %v  [kept %.03f%%, lost %.03f%%]",
+		s.tsb, s.tra, s.ObsKeepRateFromB, 1.0-s.ObsKeepRateFromB)
 }
