@@ -75,7 +75,9 @@ func (r *RecvState) Start() error {
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
 						// drop the packet
-						q("pack.SeqNum %v outside receiver's window, dropping it", pack.SeqNum)
+						p("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
+							r.Inbox, pack.SeqNum, r.NextFrameExpected,
+							r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
 						continue recvloop
 					}
@@ -89,10 +91,10 @@ func (r *RecvState) Start() error {
 							r.Inbox, pack.SeqNum)
 						for slot.Received {
 
-							q("%v actual in-order receive happening for SeqNum %v",
+							p("%v actual in-order receive happening for SeqNum %v",
 								r.Inbox, slot.Pack.SeqNum)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
-							q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
+							p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil

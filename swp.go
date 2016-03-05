@@ -178,6 +178,9 @@ type SimNet struct {
 	// simulate re-ordering of packets by setting this to 1
 	SimulateReorderNext int
 	heldBack            *Packet
+
+	// simulate duplicating the next packet
+	DuplicateNext bool
 }
 
 // NewSimNet makes a network simulator. The
@@ -239,6 +242,12 @@ func (sim *SimNet) Send(pack *Packet) error {
 			go sendWithLatency(ch, sim.heldBack, sim.Latency+20*time.Millisecond)
 			sim.heldBack = nil
 		}
+
+		if sim.DuplicateNext {
+			sim.DuplicateNext = false
+			go sendWithLatency(ch, pack, sim.Latency)
+		}
+
 	}
 	return nil
 }
