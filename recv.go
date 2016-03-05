@@ -72,6 +72,10 @@ func (r *RecvState) Start() error {
 						AckCameWithPacket: pack.SeqNum,
 					}
 				} else {
+					if pack.KeepAlive {
+						r.ack(r.NextFrameExpected-1, pack.From)
+						continue recvloop
+					}
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {

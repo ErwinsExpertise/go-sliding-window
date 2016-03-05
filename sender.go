@@ -1,7 +1,6 @@
 package swp
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -19,6 +18,7 @@ type AckStatus struct {
 type SenderState struct {
 	Net              Network
 	Inbox            string
+	Dest             string
 	LastAckRec       Seqno
 	LastFrameSent    Seqno
 	Txq              []*TxqSlot
@@ -39,13 +39,19 @@ type SenderState struct {
 	SendAck      chan *Packet
 	DiscardCount int64
 
+	LastSendTime      time.Time
+	KeepAliveInterval time.Duration
+	keepAlive         <-chan time.Time
+
 	SentButNotAcked map[Seqno]*TxqSlot
 }
 
-func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox string) *SenderState {
+func NewSenderState(net Network, sendSz int64, timeout time.Duration,
+	inbox string, destInbox string) *SenderState {
 	s := &SenderState{
 		Net:              net,
 		Inbox:            inbox,
+		Dest:             destInbox,
 		SenderWindowSize: Seqno(sendSz),
 		Txq:              make([]*TxqSlot, sendSz),
 		Timeout:          timeout,
@@ -59,6 +65,10 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration, inbox stri
 		GotAck:           make(chan AckStatus),
 		SendAck:          make(chan *Packet),
 		SentButNotAcked:  make(map[Seqno]*TxqSlot),
+
+		// send keepalives (for resuming flow from a
+		// stopped state, at least this often:
+		KeepAliveInterval: 100 * time.Millisecond,
 	}
 
 	return s
@@ -75,6 +85,10 @@ func (s *SenderState) Start() {
 
 		// check for expired timers at wakeFreq
 		wakeFreq := s.Timeout / 2
+
+		// send keepalives (for resuming flow from a
+		// stopped state) at least this often:
+		s.keepAlive = time.After(s.KeepAliveInterval)
 
 		regularIntervalWakeup := time.After(wakeFreq)
 
@@ -94,6 +108,9 @@ func (s *SenderState) Start() {
 			}
 
 			select {
+			case <-s.keepAlive:
+				s.doKeepAlive()
+
 			case <-regularIntervalWakeup:
 				q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
 
@@ -201,16 +218,35 @@ func (s *SenderState) doSend(pack *Packet) {
 
 	pack.SeqNum = lfs
 	if pack.From != s.Inbox {
-		panic(fmt.Errorf("error detected: From mis-set to '%s', should be '%s'",
-			pack.From, s.Inbox))
+		pack.From = s.Inbox
 	}
 	pack.From = s.Inbox
 	slot.Pack = pack
 	s.SentButNotAcked[lfs] = slot
 
+	now := time.Now()
 	s.SendHistory = append(s.SendHistory, pack)
-	slot.RetryDeadline = time.Now().Add(s.Timeout)
+	slot.RetryDeadline = now.Add(s.Timeout)
+	s.LastSendTime = now
 
 	err := s.Net.Send(slot.Pack)
 	panicOn(err)
+}
+
+func (s *SenderState) doKeepAlive() {
+	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
+		return
+	}
+	// send a packet with no data, to elicit an ack
+	// with a new advertised window
+	s.LastSendTime = time.Now()
+	kap := &Packet{
+		From:      s.Inbox,
+		Dest:      s.Dest,
+		KeepAlive: true,
+	}
+	err := s.Net.Send(kap)
+	panicOn(err)
+
+	s.keepAlive = time.After(s.KeepAliveInterval)
 }

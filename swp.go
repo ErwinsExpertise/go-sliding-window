@@ -29,10 +29,11 @@ type Packet struct {
 	From string
 	Dest string
 
-	SeqNum  Seqno
-	AckNum  Seqno
-	AckOnly bool
-	Data    []byte
+	SeqNum    Seqno
+	AckNum    Seqno
+	AckOnly   bool
+	KeepAlive bool
+	Data      []byte
 }
 
 // TxqSlot is the sender's sliding window element.
@@ -55,10 +56,11 @@ type SWP struct {
 
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
-func NewSWP(net Network, windowSize int64, timeout time.Duration, inbox string) *SWP {
+func NewSWP(net Network, windowSize int64,
+	timeout time.Duration, inbox string, destInbox string) *SWP {
 	recvSz := windowSize
 	sendSz := windowSize
-	snd := NewSenderState(net, sendSz, timeout, inbox)
+	snd := NewSenderState(net, sendSz, timeout, inbox, destInbox)
 	rcv := NewRecvState(net, recvSz, timeout, inbox, snd)
 	swp := &SWP{
 		Sender: snd,
@@ -91,7 +93,7 @@ func NewSession(net Network,
 	timeout time.Duration) (*Session, error) {
 
 	sess := &Session{
-		Swp:         NewSWP(net, windowSz, timeout, localInbox),
+		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox),
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		Net:         net,
