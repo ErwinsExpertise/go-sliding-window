@@ -75,10 +75,11 @@ func (r *RecvState) Start() error {
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
-						// variation from the textbook algorithm: In the
-						// presence of packet loss, if we drop the packet,
-						// the sender may re-try forever,
-						// So we'll ack our present known good values anyway.
+						// Variation from the textbook algorithm: In the
+						// presence of packet loss, if we drop certain packets,
+						// the sender may re-try forever if we have non-overlapping windows.
+						// So we'll ack every 5th present known good values anyway,
+						// which relieves the livelock without being too chatty.
 						q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
 							r.Inbox, pack.SeqNum, r.NextFrameExpected,
 							r.NextFrameExpected+r.RecvWindowSize-1)
