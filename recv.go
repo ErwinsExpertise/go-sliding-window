@@ -97,6 +97,8 @@ func (r *RecvState) Start() error {
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 						}
 					}
+					p("%v about to send ack with AckNum: %v to %v",
+						r.Inbox, r.NextFrameExpected-1, pack.From)
 					// send ack
 					ack := &Packet{
 						From:    r.Inbox,

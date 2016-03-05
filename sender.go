@@ -114,7 +114,11 @@ func (s *SenderState) Start() {
 							continue doRetryLoop
 						}
 						// need to retry this guy
-						slot := s.timerPq[0]
+						debugCheck := s.timerPq[0]
+						slot := heap.Pop(&s.timerPq).(*TxqSlot)
+						if debugCheck != slot {
+							panic("heap.Pop did not return the [0] element!")
+						}
 
 						p("%v we have timed-out packet that needs to be retried: %#v", s.Inbox, slot)
 
@@ -163,6 +167,7 @@ func (s *SenderState) Start() {
 				s.dumpTimerPq()
 
 			case a := <-s.GotAck:
+				p("%v sender GotAck a: %#v", s.Inbox, a)
 				// only an ack received - do sender side stuff
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					p("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
@@ -175,19 +180,30 @@ func (s *SenderState) Start() {
 					s.LastAckRec++
 					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
 					// lazily repair the timer heap to avoid O(n) operation each time.
-					// i.e. just ignore IsZero time entries, they are cancelled.
-					slot.RetryDeadline = time.Time{}
-					slot.Pack = nil
-					if s.timerPq[0].Pack.SeqNum == a.AckNum {
-						// adjust pq
-						s.timerPq.Pop()
+					// i.e. we just ignore IsZero time entries, or nil Pack entries,
+					// as they are cancelled.
+					p("%v ... slot = %#v", s.Inbox, slot)
+					if slot != nil {
+						slot.RetryDeadline = time.Time{}
+						slot.Pack = nil
+					}
+					if s.timerPq[0] != nil && s.timerPq[0].Pack != nil {
+						if s.timerPq[0].Pack.SeqNum == a.AckNum {
+							// adjust pq since it is quick and easy
+							s.timerPq.Pop()
+							p("%v popped timerPq, it is now:", s.Inbox)
+							s.dumpTimerPq()
+							// but not a big deal if nil Pack entries stay in the pq
+						}
 					}
 
 					// release the send slot
 					s.slotsAvail++
 					if s.LastAckRec == a.AckNum {
+						p("%v s.LastAskRec matches a.AckNum, breaking", s.Inbox)
 						break
 					}
+					p("%v s.LastAskRec != a.AckNum, looping", s.Inbox)
 				}
 			case ackPack := <-s.SendAck:
 				err := s.Net.Send(ackPack)
