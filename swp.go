@@ -29,11 +29,13 @@ type Packet struct {
 	From string
 	Dest string
 
-	SeqNum    Seqno
-	AckNum    Seqno
-	AckOnly   bool
-	KeepAlive bool
-	Data      []byte
+	SeqNum           Seqno
+	AckNum           Seqno
+	AckOnly          bool
+	KeepAlive        bool
+	AdvertisedWindow int64 // for sender throttling/flow-control
+
+	Data []byte
 }
 
 // TxqSlot is the sender's sliding window element.
