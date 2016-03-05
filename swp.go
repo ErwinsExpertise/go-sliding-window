@@ -19,7 +19,7 @@ import (
 
 //go:generate msgp
 
-//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session
+//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet
 
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64

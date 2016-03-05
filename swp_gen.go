@@ -24,6 +24,16 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 			return
 		}
 		switch msgp.UnsafeString(field) {
+		case "From":
+			z.From, err = dc.ReadString()
+			if err != nil {
+				return
+			}
+		case "Dest":
+			z.Dest, err = dc.ReadString()
+			if err != nil {
+				return
+			}
 		case "SeqNum":
 			{
 				var tmp int64
@@ -64,9 +74,27 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 4
+	// map header, size 6
+	// write "From"
+	err = en.Append(0x86, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	if err != nil {
+		return err
+	}
+	err = en.WriteString(z.From)
+	if err != nil {
+		return
+	}
+	// write "Dest"
+	err = en.Append(0xa4, 0x44, 0x65, 0x73, 0x74)
+	if err != nil {
+		return err
+	}
+	err = en.WriteString(z.Dest)
+	if err != nil {
+		return
+	}
 	// write "SeqNum"
-	err = en.Append(0x84, 0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
+	err = en.Append(0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
 	if err != nil {
 		return err
 	}
@@ -107,9 +135,15 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 // MarshalMsg implements msgp.Marshaler
 func (z *Packet) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 4
+	// map header, size 6
+	// string "From"
+	o = append(o, 0x86, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	o = msgp.AppendString(o, z.From)
+	// string "Dest"
+	o = append(o, 0xa4, 0x44, 0x65, 0x73, 0x74)
+	o = msgp.AppendString(o, z.Dest)
 	// string "SeqNum"
-	o = append(o, 0x84, 0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
+	o = append(o, 0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
 	o = msgp.AppendInt64(o, int64(z.SeqNum))
 	// string "AckNum"
 	o = append(o, 0xa6, 0x41, 0x63, 0x6b, 0x4e, 0x75, 0x6d)
@@ -139,6 +173,16 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			return
 		}
 		switch msgp.UnsafeString(field) {
+		case "From":
+			z.From, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				return
+			}
+		case "Dest":
+			z.Dest, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				return
+			}
 		case "SeqNum":
 			{
 				var tmp int64
@@ -179,7 +223,7 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 }
 
 func (z *Packet) Msgsize() (s int) {
-	s = 1 + 7 + msgp.Int64Size + 7 + msgp.Int64Size + 8 + msgp.BoolSize + 5 + msgp.BytesPrefixSize + len(z.Data)
+	s = 1 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 7 + msgp.Int64Size + 7 + msgp.Int64Size + 8 + msgp.BoolSize + 5 + msgp.BytesPrefixSize + len(z.Data)
 	return
 }
 
