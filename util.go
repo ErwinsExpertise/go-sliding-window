@@ -154,9 +154,13 @@ func (s *NatsClient) MakeSub(subject string, hand nats.MsgHandler) error {
 }
 
 func (s *NatsClient) Close() {
-	err := s.Scrip.Unsubscribe()
-	panicOn(err)
-	s.Nc.Close()
+	if s.Scrip != nil {
+		err := s.Scrip.Unsubscribe()
+		panicOn(err)
+	}
+	if s.Nc != nil {
+		s.Nc.Close()
+	}
 	p("NatsClient unsubscribe and close done")
 }
 
