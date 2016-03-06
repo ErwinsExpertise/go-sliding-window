@@ -85,6 +85,12 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// setup subscriber to consume at 1k/sec
 	// ===============================
 
+	rep := ReportOnSubscription(sub.Scrip)
+	p("rep = %#v", rep)
+	msgLimit := 10
+	bytesLimit := 20000
+	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
+
 	// ===============================
 	// setup publisher to produce at 5k/sec
 	// ===============================

@@ -64,12 +64,13 @@ func ReportOnSubscription(s *nats.Subscription) *SubReport {
 	return sr
 }
 
-func RaiseSubscriptionLimits(sub *nats.Subscription) error {
-	msgLimit := int(1e6)
-	bytesLimit := int(1e9)
+func SetSubscriptionLimits(sub *nats.Subscription,
+	msgLimit int,
+	bytesLimit int) error {
+
 	err := sub.SetPendingLimits(msgLimit, bytesLimit)
 	if err != nil {
-		return fmt.Errorf("Got an error on fm.subscription.SetPendingLimit(%v, %v)"+
+		return fmt.Errorf("Got an error on sub.SetPendingLimit(%v, %v)"+
 			": %v", msgLimit, bytesLimit, err)
 	}
 	return nil
