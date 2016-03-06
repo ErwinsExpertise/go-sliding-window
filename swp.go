@@ -190,7 +190,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 
 // Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet) error {
-	//q("in NatsNet.Send(pack=%#v)", *pack)
+	p("in NatsNet.Send(pack=%#v)", *pack)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err

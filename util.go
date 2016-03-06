@@ -235,6 +235,9 @@ func (cfg *NatsClientConfig) Init() {
 
 	o = append(o, nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
 		if cfg.AyncErrPanics {
+			fmt.Printf("\n  got an asyn err, here is the"+
+				" status of nats queues: '%#v'\n",
+				ReportOnSubscription(s))
 			panic(e)
 		}
 		cfg.NatsAsyncErrCh <- asyncErr{conn: c, sub: s, err: e}

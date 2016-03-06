@@ -72,13 +72,14 @@ func (r *RecvState) Start() error {
 		for {
 			//q("%v top of recvloop, receiver NFE: %v",
 			// r.Inbox, r.NextFrameExpected)
+
 			select {
 			case <-r.ReqStop:
 				//q("%v recvloop sees ReqStop, shutting down.", r.Inbox)
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
-				//q("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				if pack.AckOnly {
 					r.snd.GotAck <- AckStatus{
 						AckNum:              pack.AckNum,
