@@ -2,7 +2,20 @@ package swp
 
 import (
 	"github.com/nats-io/nats"
+	"sync"
 )
+
+// NatsNet connects to nats using the Network interface.
+type NatsNet struct {
+	Cli *NatsClient
+	mut sync.Mutex
+}
+
+// NewNatsNet makes a new NataNet based on an actual nats client.
+func NewNatsNet(cli *NatsClient) *NatsNet {
+	net := &NatsNet{Cli: cli}
+	return net
+}
 
 // BufferCaps returns the byte and message limits
 // currently in effect, so that flow control

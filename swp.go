@@ -2,7 +2,6 @@ package swp
 
 import (
 	"fmt"
-	"sync"
 	"time"
 )
 
@@ -10,10 +9,12 @@ import (
 //
 // Reference: pp118-120, Computer Networks: A Systems Approach
 //  by Peterson and Davie, Morgan Kaufmann Publishers, 1996.
-
-// NB this is only sliding window, and while planned,
-// doesn't have the AdvertisedWindow yet for flow-control
-// and throttling the sender. See pp296-301 of Peterson and Davie.
+//
+// In addition to sliding window, we implement flow-control
+// similar to how tcp does for throttling senders.
+// See pp296-301 of Peterson and Davie.
+//
+// Most of the implementation is in sender.go and recv.go.
 
 //go:generate msgp
 
@@ -97,6 +98,8 @@ type Session struct {
 	Net Network
 }
 
+// NewSession makes a new Session, and calls
+// Swp.Start to begin the sliding-window-protocol.
 func NewSession(net Network,
 	localInbox string,
 	destInbox string,
@@ -137,16 +140,6 @@ func InWindow(seqno, min, max Seqno) bool {
 	return true
 }
 
-type NatsNet struct {
-	Cli *NatsClient
-	mut sync.Mutex
-}
-
-func NewNatsNet(cli *NatsClient) *NatsNet {
-	net := &NatsNet{Cli: cli}
-	return net
-}
-
 // Network describes our network abstraction, and is implemented
 // by SimNet and NatsNet.
 type Network interface {
@@ -161,7 +154,7 @@ type Network interface {
 	// BufferCaps returns the byte and message limits
 	// currently in effect, so that flow control
 	// can be used to avoid sender overrunning them.
-	// Not safe for concurrent access, so serialize
+	// Not necessarily safe for concurrent access, so serialize
 	// access if the Network is shared.
 	BufferCaps() (bytecap int64, msgcap int64)
 }
