@@ -49,6 +49,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// ===============================
 
 	subC := NewNatsClientConfig(host, port, "B", "B", true, true)
+	subC.AsyncErrPanics = true
 	sub := NewNatsClient(subC)
 	err := sub.Start()
 	panicOn(err)
@@ -87,10 +88,17 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	rep := ReportOnSubscription(sub.Scrip)
 	p("rep = %#v", rep)
+
+	// this limit alone is the first test for flow
+	// control, since with a 10 message limit we'll quickly
+	// overflow the client-side nats internal
+	// buffer, and panic since 	subC.AsyncErrPanics = true
 	msgLimit := 10
 	bytesLimit := 20000
-	B.Swp.Recver.ReservedByteCap = 0
-	B.Swp.Recver.ReservedMsgCap = 0
+	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
+		ReservedByteCap: 0,
+		ReservedMsgCap:  0,
+	}}
 	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
 
 	// ===============================

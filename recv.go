@@ -25,36 +25,21 @@ type RecvState struct {
 	DiscardCount int64
 
 	snd *SenderState
-
-	// flow control params
-	ReservedByteCap int64
-	ReservedMsgCap  int64
-
-	// flow control params
-	// current: use these to advertise; kept
-	// up to date as conditions change.
-	// These already have Reserved capcity
-	// subtracted from them, so they are
-	// safe to ack to sender.
-	AvailReaderBytesCap int64
-	AvailReaderMsgCap   int64
 }
 
 // NewRecvState makes a new RecvState manager.
 func NewRecvState(net Network, recvSz int64, timeout time.Duration, inbox string, snd *SenderState) *RecvState {
 	return &RecvState{
-		Net:             net,
-		Inbox:           inbox,
-		RecvWindowSize:  Seqno(recvSz),
-		Rxq:             make([]*RxqSlot, recvSz),
-		Timeout:         timeout,
-		RecvHistory:     make([]*Packet, 0),
-		ReqStop:         make(chan bool),
-		Done:            make(chan bool),
-		RecvSz:          recvSz,
-		snd:             snd,
-		ReservedByteCap: 64 * 1024,
-		ReservedMsgCap:  32,
+		Net:            net,
+		Inbox:          inbox,
+		RecvWindowSize: Seqno(recvSz),
+		Rxq:            make([]*RxqSlot, recvSz),
+		Timeout:        timeout,
+		RecvHistory:    make([]*Packet, 0),
+		ReqStop:        make(chan bool),
+		Done:           make(chan bool),
+		RecvSz:         recvSz,
+		snd:            snd,
 	}
 }
 
@@ -80,12 +65,19 @@ func (r *RecvState) Start() error {
 				return
 			case pack := <-r.MsgRecv:
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				// stuff has changed, so update
+				r.snd.FlowCt.UpdateFlow(r.Net)
 				if pack.AckOnly {
-					r.snd.GotAck <- AckStatus{
+					select {
+					case r.snd.GotAck <- AckStatus{
 						AckNum:              pack.AckNum,
 						AckCameWithPacket:   pack.SeqNum,
 						AvailReaderBytesCap: pack.AvailReaderBytesCap,
 						AvailReaderMsgCap:   pack.AvailReaderMsgCap,
+					}:
+					case <-r.ReqStop:
+						close(r.Done)
+						return
 					}
 				} else {
 					if pack.KeepAlive {
@@ -95,7 +87,7 @@ func (r *RecvState) Start() error {
 					// actual data received, receiver side stuff:
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
-						// Variation from the textbook algorithm: In the
+						// Variation from textbook TCP: In the
 						// presence of packet loss, if we drop certain packets,
 						// the sender may re-try forever if we have non-overlapping windows.
 						// So we'll ack out of bounds known good values anyway.
@@ -143,7 +135,7 @@ func (r *RecvState) Start() error {
 
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
-	r.UpdateCaps()
+	flow := r.snd.FlowCt.UpdateFlow(r.Net)
 	q("%v about to send ack with AckNum: %v to %v",
 		r.Inbox, seqno, dest)
 	// send ack
@@ -153,8 +145,8 @@ func (r *RecvState) ack(seqno Seqno, dest string) {
 		SeqNum:              -99, // => ack flag
 		AckNum:              seqno,
 		AckOnly:             true,
-		AvailReaderBytesCap: r.AvailReaderBytesCap,
-		AvailReaderMsgCap:   r.AvailReaderMsgCap,
+		AvailReaderBytesCap: flow.AvailReaderBytesCap,
+		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
 	r.snd.SendAck <- ack
 }
@@ -169,21 +161,4 @@ func (r *RecvState) Stop() {
 	}
 	r.mut.Unlock()
 	<-r.Done
-}
-
-func (r *RecvState) UpdateCaps() {
-
-	// ask nats/sim for current consumption
-	// of internal client buffers.
-	blim, mlim := r.Net.BufferCaps()
-
-	r.AvailReaderBytesCap = blim - r.ReservedByteCap
-	r.AvailReaderMsgCap = mlim - r.ReservedMsgCap
-
-	if r.AvailReaderBytesCap < 0 {
-		r.AvailReaderBytesCap = 0
-	}
-	if r.AvailReaderMsgCap < 0 {
-		r.AvailReaderMsgCap = 0
-	}
 }

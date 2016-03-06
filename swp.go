@@ -142,6 +142,7 @@ func InWindow(seqno, min, max Seqno) bool {
 
 type NatsNet struct {
 	Cli *NatsClient
+	mut sync.Mutex
 }
 
 func NewNatsNet(cli *NatsClient) *NatsNet {
@@ -163,6 +164,8 @@ type Network interface {
 	// BufferCaps returns the byte and message limits
 	// currently in effect, so that flow control
 	// can be used to avoid sender overrunning them.
+	// Not safe for concurrent access, so serialize
+	// access if the Network is shared.
 	BufferCaps() (bytecap int64, msgcap int64)
 }
 
@@ -170,6 +173,8 @@ type Network interface {
 // currently in effect, so that flow control
 // can be used to avoid sender overrunning them.
 func (n *NatsNet) BufferCaps() (bytecap int64, msgcap int64) {
+	n.mut.Lock()
+	defer n.mut.Unlock()
 	return GetSubscripCap(n.Cli.Scrip)
 }
 

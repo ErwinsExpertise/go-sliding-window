@@ -14,6 +14,9 @@ type AckStatus struct {
 }
 
 // SenderState tracks the sender's sliding window state.
+// To avoid circulate deadlocks, the Sender never talks
+// directly to the RecvState. The RecvState will
+// tell the Sender stuff on GotAck.
 type SenderState struct {
 	Net              Network
 	Inbox            string
@@ -54,6 +57,10 @@ type SenderState struct {
 
 	// EffectiveWindow = AdvertisedWindow - (LastByteSent - LastByteAcked)
 	EffectiveWindow int64
+
+	// do synchronized access via GetFlow()
+	// and UpdateFlow(s.Net)
+	FlowCt FlowCtrl
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
@@ -79,6 +86,10 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
 		KeepAliveInterval: 100 * time.Millisecond,
+		FlowCt: FlowCtrl{flow: Flow{
+			ReservedByteCap: 64 * 1024,
+			ReservedMsgCap:  32,
+		}},
 	}
 
 	return s
@@ -152,6 +163,9 @@ func (s *SenderState) Start() {
 					// reset deadline and resend
 					slot.RetryDeadline = time.Now().Add(s.Timeout)
 
+					flow := s.FlowCt.UpdateFlow(s.Net)
+					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
+					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 					err := s.Net.Send(slot.Pack)
 					panicOn(err)
 				}
@@ -165,7 +179,12 @@ func (s *SenderState) Start() {
 
 			case a := <-s.GotAck:
 				q("%v sender GotAck a: %#v", s.Inbox, a)
-				// only an ack received - do sender side stuff
+				// ack received - do sender side stuff
+				//
+				// flow control: respect a.AvailReaderBytesCap
+				// and a.AvailReaderMsgCap info that we have
+				// received from this ack
+				//
 				delete(s.SentButNotAcked, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
@@ -239,6 +258,9 @@ func (s *SenderState) doSend(pack *Packet) {
 	slot.RetryDeadline = now.Add(s.Timeout)
 	s.LastSendTime = now
 
+	flow := s.FlowCt.UpdateFlow(s.Net)
+	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
+	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	err := s.Net.Send(slot.Pack)
 	panicOn(err)
 }
@@ -247,13 +269,16 @@ func (s *SenderState) doKeepAlive() {
 	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
 		return
 	}
+	flow := s.FlowCt.UpdateFlow(s.Net)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window
 	s.LastSendTime = time.Now()
 	kap := &Packet{
-		From:      s.Inbox,
-		Dest:      s.Dest,
-		KeepAlive: true,
+		From:                s.Inbox,
+		Dest:                s.Dest,
+		KeepAlive:           true,
+		AvailReaderBytesCap: flow.AvailReaderBytesCap,
+		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
 	err := s.Net.Send(kap)
 	panicOn(err)

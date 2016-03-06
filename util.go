@@ -135,7 +135,7 @@ func NewNatsClient(cfg *NatsClientConfig) *NatsClient {
 }
 
 func (s *NatsClient) Start() error {
-	s.Cfg.AyncErrPanics = true
+	//	s.Cfg.AsyncErrPanics = true
 	s.Cfg.Init()
 
 	nc, err := nats.Connect(s.Cfg.ServerList, s.Cfg.Opts...)
@@ -179,13 +179,13 @@ func NewNatsClientConfig(
 	asyncErrCrash bool) *NatsClientConfig {
 
 	cfg := &NatsClientConfig{
-		Host:          host,
-		Port:          port,
-		NatsNodeName:  myname,
-		Subject:       subject,
-		SkipTLS:       skipTLS,
-		AyncErrPanics: asyncErrCrash,
-		ServerList:    fmt.Sprintf("nats://%v:%v", host, port),
+		Host:           host,
+		Port:           port,
+		NatsNodeName:   myname,
+		Subject:        subject,
+		SkipTLS:        skipTLS,
+		AsyncErrPanics: asyncErrCrash,
+		ServerList:     fmt.Sprintf("nats://%v:%v", host, port),
 	}
 	return cfg
 }
@@ -203,7 +203,7 @@ type NatsClientConfig struct {
 	SkipTLS bool
 
 	// helpful for test code to auto-crash on error
-	AyncErrPanics bool
+	AsyncErrPanics bool
 
 	// ====================
 	// Init() fills in:
@@ -234,7 +234,7 @@ func (cfg *NatsClientConfig) Init() {
 	o = append(o, nats.Name(cfg.NatsNodeName))
 
 	o = append(o, nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
-		if cfg.AyncErrPanics {
+		if cfg.AsyncErrPanics {
 			fmt.Printf("\n  got an asyn err, here is the"+
 				" status of nats queues: '%#v'\n",
 				ReportOnSubscription(s))
