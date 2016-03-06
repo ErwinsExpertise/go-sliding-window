@@ -82,17 +82,19 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	panicOn(err)
 
 	// ===============================
-	// setup subscriber to consume at 1k/sec
+	// setup subscriber to consume at 1 message/sec
 	// ===============================
 
 	rep := ReportOnSubscription(sub.Scrip)
 	p("rep = %#v", rep)
 	msgLimit := 10
 	bytesLimit := 20000
+	B.Swp.Recver.ReservedByteCap = 0
+	B.Swp.Recver.ReservedMsgCap = 0
 	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
 
 	// ===============================
-	// setup publisher to produce at 5k/sec
+	// setup publisher to produce at 5 messages/sec
 	// ===============================
 
 	n := 100
