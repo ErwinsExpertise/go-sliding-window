@@ -30,11 +30,22 @@ type Packet struct {
 	From string
 	Dest string
 
-	SeqNum           Seqno
-	AckNum           Seqno
-	AckOnly          bool
-	KeepAlive        bool
-	AdvertisedWindow int64 // for sender throttling/flow-control
+	SeqNum    Seqno
+	AckNum    Seqno
+	AckOnly   bool
+	KeepAlive bool
+
+	// AvailReaderByteCap and AvailReaderMsgCap are
+	// like the byte count AdvertisedWindow in TCP, but
+	// since nats has both byte and message count
+	// limits, we want convey these instead.
+	//
+	// NB we'll want to reserve some headroom in our
+	// nats buffers for receipt of acks and other
+	// control messages (ReservedByteCap, ReservedMsgCap)
+	//
+	AvailReaderBytesCap int64 // for sender throttling/flow-control
+	AvailReaderMsgCap   int64 // for sender throttling/flow-control
 
 	Data []byte
 }
@@ -148,6 +159,18 @@ type Network interface {
 
 	// Listen starts receiving packets addressed to inbox on the returned channel.
 	Listen(inbox string) (chan *Packet, error)
+
+	// BufferCaps returns the byte and message limits
+	// currently in effect, so that flow control
+	// can be used to avoid sender overrunning them.
+	BufferCaps() (bytecap int64, msgcap int64)
+}
+
+// BufferCaps returns the byte and message limits
+// currently in effect, so that flow control
+// can be used to avoid sender overrunning them.
+func (n *NatsNet) BufferCaps() (bytecap int64, msgcap int64) {
+	return GetSubscripCap(n.Cli.Scrip)
 }
 
 // Listen starts receiving packets addressed to inbox on the returned channel.
@@ -194,6 +217,14 @@ type SimNet struct {
 
 	// simulate duplicating the next packet
 	DuplicateNext bool
+}
+
+// BufferCaps returns the byte and message limits
+// currently in effect, so that flow control
+// can be used to avoid sender overrunning them.
+func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
+	// limits so high they shouldn't be restrictive
+	return 1024 * 1024 * 1024, 1024
 }
 
 // NewSimNet makes a network simulator. The

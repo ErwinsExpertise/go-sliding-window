@@ -27,27 +27,34 @@ type RecvState struct {
 	snd *SenderState
 
 	// flow control params
-	MaxRecvBuffer    int64
-	LastByteRead     int64
-	LastByteRcvd     int64
-	NextByteExpected int64
+	ReservedByteCap int64
+	ReservedMsgCap  int64
 
-	LastAdvertisedWindow int64
+	// flow control params
+	// current: use these to advertise; kept
+	// up to date as conditions change.
+	// These already have Reserved capcity
+	// subtracted from them, so they are
+	// safe to ack to sender.
+	AvailReaderBytesCap int64
+	AvailReaderMsgCap   int64
 }
 
 // NewRecvState makes a new RecvState manager.
 func NewRecvState(net Network, recvSz int64, timeout time.Duration, inbox string, snd *SenderState) *RecvState {
 	return &RecvState{
-		Net:            net,
-		Inbox:          inbox,
-		RecvWindowSize: Seqno(recvSz),
-		Rxq:            make([]*RxqSlot, recvSz),
-		Timeout:        timeout,
-		RecvHistory:    make([]*Packet, 0),
-		ReqStop:        make(chan bool),
-		Done:           make(chan bool),
-		RecvSz:         recvSz,
-		snd:            snd,
+		Net:             net,
+		Inbox:           inbox,
+		RecvWindowSize:  Seqno(recvSz),
+		Rxq:             make([]*RxqSlot, recvSz),
+		Timeout:         timeout,
+		RecvHistory:     make([]*Packet, 0),
+		ReqStop:         make(chan bool),
+		Done:            make(chan bool),
+		RecvSz:          recvSz,
+		snd:             snd,
+		ReservedByteCap: 64 * 1024,
+		ReservedMsgCap:  32,
 	}
 }
 
@@ -74,10 +81,10 @@ func (r *RecvState) Start() error {
 				//q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				if pack.AckOnly {
 					r.snd.GotAck <- AckStatus{
-						AckNum:            pack.AckNum,
-						NFE:               r.NextFrameExpected,
-						RWS:               r.RecvWindowSize,
-						AckCameWithPacket: pack.SeqNum,
+						AckNum:              pack.AckNum,
+						AckCameWithPacket:   pack.SeqNum,
+						AvailReaderBytesCap: pack.AvailReaderBytesCap,
+						AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 					}
 				} else {
 					if pack.KeepAlive {
@@ -135,15 +142,18 @@ func (r *RecvState) Start() error {
 
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
+	r.UpdateCaps()
 	q("%v about to send ack with AckNum: %v to %v",
 		r.Inbox, seqno, dest)
 	// send ack
 	ack := &Packet{
-		From:    r.Inbox,
-		Dest:    dest,
-		SeqNum:  -99, // => ack flag
-		AckNum:  seqno,
-		AckOnly: true,
+		From:                r.Inbox,
+		Dest:                dest,
+		SeqNum:              -99, // => ack flag
+		AckNum:              seqno,
+		AckOnly:             true,
+		AvailReaderBytesCap: r.AvailReaderBytesCap,
+		AvailReaderMsgCap:   r.AvailReaderMsgCap,
 	}
 	r.snd.SendAck <- ack
 }
@@ -158,4 +168,21 @@ func (r *RecvState) Stop() {
 	}
 	r.mut.Unlock()
 	<-r.Done
+}
+
+func (r *RecvState) UpdateCaps() {
+
+	// ask nats/sim for current consumption
+	// of internal client buffers.
+	blim, mlim := r.Net.BufferCaps()
+
+	r.AvailReaderBytesCap = blim - r.ReservedByteCap
+	r.AvailReaderMsgCap = mlim - r.ReservedMsgCap
+
+	if r.AvailReaderBytesCap < 0 {
+		r.AvailReaderBytesCap = 0
+	}
+	if r.AvailReaderMsgCap < 0 {
+		r.AvailReaderMsgCap = 0
+	}
 }

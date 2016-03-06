@@ -7,11 +7,10 @@ import (
 
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
-	AckNum            Seqno
-	LAR               Seqno // LastAckReceived
-	NFE               Seqno // NextFrameExpected
-	RWS               Seqno // ReceiverWindowSize
-	AckCameWithPacket Seqno
+	AckNum              Seqno
+	AckCameWithPacket   Seqno
+	AvailReaderBytesCap int64 // for sender throttling/flow-control
+	AvailReaderMsgCap   int64 // for sender throttling/flow-control
 }
 
 // SenderState tracks the sender's sliding window state.

@@ -75,3 +75,22 @@ func SetSubscriptionLimits(sub *nats.Subscription,
 	}
 	return nil
 }
+
+// GetSubscipCaps returns the byte and messge count
+// capacity left for this subscription.
+func GetSubscripCap(s *nats.Subscription) (bytecap int64, msgcap int64) {
+
+	// Pending returns the number of queued messages and queued
+	// bytes in the client for this subscription.
+	pendMsg, pendBytes, err := s.Pending()
+	panicOn(err)
+
+	// PendingLimits returns the current limits for this subscription.
+	msgLim, byteLim, err := s.PendingLimits()
+	panicOn(err)
+
+	advReaderBytesCap := int64(byteLim - pendBytes)
+	advReaderMsgCap := int64(msgLim - pendMsg)
+
+	return advReaderBytesCap, advReaderMsgCap
+}
