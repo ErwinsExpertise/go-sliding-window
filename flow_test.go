@@ -20,8 +20,10 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// only sending at that 20% rate.
 	//
 	// implications:
-	// and so we should see the internal buffers staying
-	// within range. we should never get an error from
+	//
+	// We should see the internal buffers
+	// (in the receiving nats client library) staying
+	// within range. We should never get an error from
 	// nats saying that the buffers have overflowed and
 	// messages have been dropped.
 
@@ -42,6 +44,10 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 		gnats.Shutdown() // when done
 	}()
 
+	// ===============================
+	// setup nats clients for a publisher and a subscriber
+	// ===============================
+
 	subC := NewNatsClientConfig(host, port, "B", "B", true, true)
 	sub := NewNatsClient(subC)
 	err := sub.Start()
@@ -53,6 +59,10 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	err = pub.Start()
 	panicOn(err)
 	defer pub.Close()
+
+	// ===============================
+	// make a session for each
+	// ===============================
 
 	anet := NewNatsNet(pub)
 	bnet := NewNatsNet(sub)
@@ -70,6 +80,14 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	B, err := NewSession(bnet, "B", "A", 3, rtt)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
+
+	// ===============================
+	// setup subscriber to consume at 1k/sec
+	// ===============================
+
+	// ===============================
+	// setup publisher to produce at 5k/sec
+	// ===============================
 
 	n := 100
 	seq := make([]*Packet, n)
