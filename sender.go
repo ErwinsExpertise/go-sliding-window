@@ -77,8 +77,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SendAck:          make(chan *Packet),
 		SentButNotAcked:  make(map[Seqno]*TxqSlot),
 
-		// send keepalives (for resuming flow from a
-		// stopped state, at least this often:
+		// send keepalives (important especially for resuming flow from a
+		// stopped state) at least this often:
 		KeepAliveInterval: 100 * time.Millisecond,
 	}
 

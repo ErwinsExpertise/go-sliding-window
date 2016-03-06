@@ -130,8 +130,12 @@ func InWindow(seqno, min, max Seqno) bool {
 }
 
 type NatsNet struct {
-	Nc                *nats.Conn
-	InboxSubscription *nats.Subscription
+	Cli *NatsClient
+}
+
+func NewNatsNet(cli *NatsClient) *NatsNet {
+	net := &NatsNet{Cli: cli}
+	return net
 }
 
 // Network describes our network abstraction, and is implemented
@@ -151,13 +155,13 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 	mr := make(chan *Packet)
 
 	// do actual subscription
-	var err error
-	n.InboxSubscription, err = n.Nc.Subscribe(inbox, func(msg *nats.Msg) {
+	err := n.Cli.MakeSub(inbox, func(msg *nats.Msg) {
 		var pack Packet
 		_, err := pack.UnmarshalMsg(msg.Data)
 		panicOn(err)
 		mr <- &pack
 	})
+	p("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
 	return mr, err
 }
 
@@ -168,7 +172,7 @@ func (n *NatsNet) Send(pack *Packet) error {
 	if err != nil {
 		return err
 	}
-	return n.Nc.Publish(pack.Dest, bts)
+	return n.Cli.Nc.Publish(pack.Dest, bts)
 }
 
 // SimNet simulates a network with a given latency and loss characteristics.

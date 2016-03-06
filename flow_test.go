@@ -41,26 +41,33 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 		p("calling gnats.Shutdown()")
 		gnats.Shutdown() // when done
 	}()
-	gnatsdUrl := fmt.Sprintf("nats://%v:%v", host, port)
 
-	subj := "my-topic"
-	sub := StartSubscriber("B-subscriber", gnatsdUrl, subj)
+	subC := NewNatsClientConfig(host, port, "B", "B", true, true)
+	sub := NewNatsClient(subC)
+	err := sub.Start()
+	panicOn(err)
 	defer sub.Close()
 
-	pub := StartPublisher("A-publisher", gnatsdUrl, subj)
+	pubC := NewNatsClientConfig(host, port, "A", "A", true, true)
+	pub := NewNatsClient(pubC)
+	err = pub.Start()
+	panicOn(err)
 	defer pub.Close()
+
+	anet := NewNatsNet(pub)
+	bnet := NewNatsNet(sub)
 
 	q("sub = %#v", sub)
 	q("pub = %#v", pub)
 
-	lossProb := float64(0)
+	//lossProb := float64(0)
 	lat := 1 * time.Millisecond
-	net := NewSimNet(lossProb, lat)
+
 	rtt := 3 * lat
 
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(anet, "A", "B", 3, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(bnet, "B", "A", 3, rtt)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
