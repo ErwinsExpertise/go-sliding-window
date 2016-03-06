@@ -119,7 +119,9 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	p("due to the hold-back, B should not have gotten anything, packet should have been held.")
-	cv.So(len(B.Swp.Recver.RecvHistory), cv.ShouldEqual, 0)
+	if len(B.Swp.Recver.RecvHistory) != 0 {
+		panic("should have some B history")
+	}
 
 	A.Push(p2)
 
