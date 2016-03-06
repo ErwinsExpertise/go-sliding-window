@@ -67,19 +67,23 @@ func (r *RecvState) Start() error {
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.snd.FlowCt.UpdateFlow(r.Net)
-				if pack.AckOnly {
-					select {
-					case r.snd.GotAck <- AckStatus{
-						AckNum:              pack.AckNum,
-						AckCameWithPacket:   pack.SeqNum,
-						AvailReaderBytesCap: pack.AvailReaderBytesCap,
-						AvailReaderMsgCap:   pack.AvailReaderMsgCap,
-					}:
-					case <-r.ReqStop:
-						close(r.Done)
-						return
-					}
-				} else {
+				// and tell snd about the new flow-control info
+				as := AckStatus{
+					OnlyUpdateFlowCtrl:  !pack.AckOnly,
+					AckNum:              pack.AckNum,
+					AckCameWithPacket:   pack.SeqNum,
+					AvailReaderBytesCap: pack.AvailReaderBytesCap,
+					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
+				}
+				p("tellng r.snd.GotAck <- as: '%#v'",
+					as)
+				select {
+				case r.snd.GotAck <- as:
+				case <-r.ReqStop:
+					close(r.Done)
+					return
+				}
+				if !pack.AckOnly {
 					if pack.KeepAlive {
 						r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop

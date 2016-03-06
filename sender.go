@@ -7,6 +7,7 @@ import (
 
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
+	OnlyUpdateFlowCtrl  bool // don't send ack, just update flow info.
 	AckNum              Seqno
 	AckCameWithPacket   Seqno
 	AvailReaderBytesCap int64 // for sender throttling/flow-control
@@ -48,12 +49,14 @@ type SenderState struct {
 	SentButNotAcked map[Seqno]*TxqSlot
 
 	// flow control params
-	MaxSendBuffer   int64
-	LastByteSent    int64
-	LastByteAcked   int64
-	LastByteWritten int64
-
-	LastSeenAdvertisedWindow int64
+	// last seen from our downstream
+	// receiver, we throttle ourselves
+	// based on these. For example, our
+	// effective usable window is
+	//   min(LastSeenAvailReaderMsgCap, slotsAvail)
+	// for count of messages we can send.
+	LastSeenAvailReaderBytesCap int64
+	LastSeenAvailReaderMsgCap   int64
 
 	// EffectiveWindow = AdvertisedWindow - (LastByteSent - LastByteAcked)
 	EffectiveWindow int64
@@ -90,6 +93,10 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 			ReservedByteCap: 64 * 1024,
 			ReservedMsgCap:  32,
 		}},
+		// some kind of sensible defaults... just guesses, but
+		// they'll get updated after the first ack.
+		LastSeenAvailReaderMsgCap:   10,
+		LastSeenAvailReaderBytesCap: 100 * 1024,
 	}
 
 	return s
@@ -119,13 +126,21 @@ func (s *SenderState) Start() {
 				s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// do we have capacity to accept a send?
-			// do a conditional receive
+			// do a conditional receive. Start by
+			// assuming no:
+			acceptSend = nil
+			// then check
 			if s.slotsAvail > 0 {
-				// yes
-				acceptSend = s.BlockingSend
+				// maybe, if flow control info
+				// from the receiver agrees
+				if s.LastSeenAvailReaderMsgCap > 0 {
+					p("%v flow-control: okay to send", s.Inbox)
+					acceptSend = s.BlockingSend
+				} else {
+					p("%v flow-control kicked in: not sending", s.Inbox)
+				}
 			} else {
-				// no
-				acceptSend = nil
+				p("%v slot-limit kicked in: not sending", s.Inbox)
 			}
 
 			select {
@@ -178,13 +193,20 @@ func (s *SenderState) Start() {
 				s.doSend(pack)
 
 			case a := <-s.GotAck:
-				q("%v sender GotAck a: %#v", s.Inbox, a)
+				p("%v sender GotAck a: %#v", s.Inbox, a)
 				// ack received - do sender side stuff
 				//
 				// flow control: respect a.AvailReaderBytesCap
 				// and a.AvailReaderMsgCap info that we have
 				// received from this ack
 				//
+				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
+				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
+				if a.OnlyUpdateFlowCtrl {
+					// it wasn't an Ack, just updated flow info
+					// from a received data message.
+					continue sendloop
+				}
 				delete(s.SentButNotAcked, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
@@ -271,7 +293,10 @@ func (s *SenderState) doKeepAlive() {
 	}
 	flow := s.FlowCt.UpdateFlow(s.Net)
 	// send a packet with no data, to elicit an ack
-	// with a new advertised window
+	// with a new advertised window. This is
+	// *not* an ack, because we need it to be
+	// acked itself so we get any updated
+	// flow control info from the other end.
 	s.LastSendTime = time.Now()
 	kap := &Packet{
 		From:                s.Inbox,
@@ -284,4 +309,11 @@ func (s *SenderState) doKeepAlive() {
 	panicOn(err)
 
 	s.keepAlive = time.After(s.KeepAliveInterval)
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }
