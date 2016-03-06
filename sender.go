@@ -125,8 +125,8 @@ func (s *SenderState) Start() {
 
 	sendloop:
 		for {
-			q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
-				s.Inbox, s.LastAckRec, s.LastFrameSent)
+			//q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
+			//	s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// do we have capacity to accept a send?
 			// do a conditional receive. Start by
@@ -137,13 +137,13 @@ func (s *SenderState) Start() {
 				// maybe, if flow control info
 				// from the receiver agrees
 				if s.LastSeenAvailReaderMsgCap > 0 {
-					p("%v flow-control: okay to send", s.Inbox)
+					q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
 					acceptSend = s.BlockingSend
 				} else {
-					p("%v flow-control kicked in: not sending", s.Inbox)
+					q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v.", s.Inbox, s.LastSeenAvailReaderMsgCap)
 				}
 			} else {
-				p("%v slot-limit kicked in: not sending", s.Inbox)
+				q("%v slot-limit kicked in: not sending. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
 			}
 
 			select {
@@ -151,7 +151,7 @@ func (s *SenderState) Start() {
 				s.doKeepAlive()
 
 			case <-regularIntervalWakeup:
-				q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
+				//q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
 
 				// have any of our packets timed-out and need to be
 				// sent again?
@@ -164,17 +164,17 @@ func (s *SenderState) Start() {
 			doRetryLoop:
 				for _, slot := range retry {
 					if slot.Pack == nil {
-						q("retry loop, slot = %#v", slot)
+						//q("retry loop, slot = %#v", slot)
 					}
 					_, ok := s.SentButNotAcked[slot.Pack.SeqNum]
 					if !ok {
-						q("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
-							slot.Pack.SeqNum)
+						//q("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
+						//	slot.Pack.SeqNum)
 						continue doRetryLoop
 					}
 					if slot.Pack.SeqNum <= s.LastAckRec {
-						q("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
-							s.LastAckRec, slot.Pack.SeqNum)
+						//q("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
+						//	s.LastAckRec, slot.Pack.SeqNum)
 						continue doRetryLoop
 					}
 
@@ -184,7 +184,7 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
-					p("%v doing retry Net.Send()", s.Inbox)
+					q("%v doing retry Net.Send()", s.Inbox)
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
@@ -194,11 +194,11 @@ func (s *SenderState) Start() {
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
-				p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
+				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
 				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
-				p("%v sender GotAck a: %#v", s.Inbox, a)
+				q("%v sender GotAck a: %#v", s.Inbox, a)
 				// ack received - do sender side stuff
 				//
 				// flow control: respect a.AvailReaderBytesCap
@@ -210,12 +210,14 @@ func (s *SenderState) Start() {
 				if a.OnlyUpdateFlowCtrl {
 					// it wasn't an Ack, just updated flow info
 					// from a received data message.
+					q("%s sender Gotack: just updated flow control, continuing sendloop", s.Inbox)
 					continue sendloop
 				}
+				q("%s sender Gotack: more than just flowcontrol...", s.Inbox)
 				delete(s.SentButNotAcked, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
-						s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
+					//q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
+					//	s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
 					s.DiscardCount++
 					continue sendloop
 				}
@@ -242,7 +244,7 @@ func (s *SenderState) Start() {
 			case ackPack := <-s.SendAck:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
+				q("%v doing Net.Send() SendAck request on ackPack: '%#v'",
 					s.Inbox, ackPack)
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				panicOn(err)
@@ -290,7 +292,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	s.LastSendTime = now
 
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net)
-	p("%v doSend(), flow = '%#v'", s.Inbox, flow)
+	q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doSend() for %v", s.Inbox))
@@ -302,7 +304,7 @@ func (s *SenderState) doKeepAlive() {
 		return
 	}
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net)
-	p("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
+	q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is
 	// *not* an ack, because we need it to be
@@ -317,7 +319,7 @@ func (s *SenderState) doKeepAlive() {
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
-	p("%v doing keepalive Net.Send()", s.Inbox)
+	q("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	panicOn(err)
 

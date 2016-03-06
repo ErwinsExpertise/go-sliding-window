@@ -64,7 +64,7 @@ func (r *RecvState) Start() error {
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
-				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
 				// and tell snd about the new flow-control info
@@ -75,7 +75,7 @@ func (r *RecvState) Start() error {
 					AvailReaderBytesCap: pack.AvailReaderBytesCap,
 					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 				}
-				p("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
+				q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
 				select {
 				case r.snd.GotAck <- as:
 				case <-r.ReqStop:
@@ -97,9 +97,9 @@ func (r *RecvState) Start() error {
 						// We could also do every 5th discard, but we want to get
 						// the flow control ramp-up-from-zero correct and not acking
 						// may inhibit that.
-						q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
-							r.Inbox, pack.SeqNum, r.NextFrameExpected,
-							r.NextFrameExpected+r.RecvWindowSize-1)
+						//q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
+						//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
+						//	r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
 						r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop
@@ -114,10 +114,10 @@ func (r *RecvState) Start() error {
 						//	r.Inbox, pack.SeqNum)
 						for slot.Received {
 
-							q("%v actual in-order receive happening for SeqNum %v",
-								r.Inbox, slot.Pack.SeqNum)
+							//q("%v actual in-order receive happening for SeqNum %v",
+							//	r.Inbox, slot.Pack.SeqNum)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
-							q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
+							//q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -139,8 +139,8 @@ func (r *RecvState) Start() error {
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
 	flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
-	q("%v about to send ack with AckNum: %v to %v",
-		r.Inbox, seqno, dest)
+	//q("%v about to send ack with AckNum: %v to %v",
+	//	r.Inbox, seqno, dest)
 	// send ack
 	ack := &Packet{
 		From:                r.Inbox,

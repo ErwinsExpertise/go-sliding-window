@@ -50,7 +50,7 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
 	// ask nats/sim for current consumption
 	// of internal client buffers.
 	blim, mlim := net.BufferCaps()
-	p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
+	//p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
 	r.flow.AvailReaderBytesCap = blim - r.flow.ReservedByteCap
 	r.flow.AvailReaderMsgCap = mlim - r.flow.ReservedMsgCap
 
@@ -60,7 +60,7 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
 	if r.flow.AvailReaderMsgCap < 0 {
 		r.flow.AvailReaderMsgCap = 0
 	}
-	p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'", who, r.flow)
+	//p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'", who, r.flow)
 	cp := r.flow
 	return cp
 }

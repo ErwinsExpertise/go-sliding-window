@@ -74,7 +74,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	//lossProb := float64(0)
 	lat := 1 * time.Millisecond
 
-	rtt := 3 * lat
+	rtt := 1000 * lat
 
 	A, err := NewSession(anet, "A", "B", 3, rtt)
 	panicOn(err)

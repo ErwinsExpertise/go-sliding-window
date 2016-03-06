@@ -121,7 +121,7 @@ var ErrShutdown = fmt.Errorf("shutting down")
 
 // Push sends a message packet, blocking until that is done.
 func (sess *Session) Push(pack *Packet) {
-	p("%v Push called", sess.MyInbox)
+	p("%v Push called on payload '%s'", sess.MyInbox, string(pack.Data))
 	select {
 	case sess.Swp.Sender.BlockingSend <- pack:
 	case <-sess.Swp.Sender.ReqStop:
@@ -195,7 +195,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 
 // Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet, why string) error {
-	p("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
+	q("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err
@@ -269,16 +269,16 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 		// do nothing
 	case 1:
 		sim.heldBack = pack
-		q("sim reordering: holding back pack SeqNum %v to %v", pack.SeqNum, pack.Dest)
+		//q("sim reordering: holding back pack SeqNum %v to %v", pack.SeqNum, pack.Dest)
 		sim.SimulateReorderNext++
 		return nil
 	default:
-		q("sim: setting SimulateReorderNext %v -> 0", sim.SimulateReorderNext)
+		//q("sim: setting SimulateReorderNext %v -> 0", sim.SimulateReorderNext)
 		sim.SimulateReorderNext = 0
 	}
 
 	if pack.SeqNum == sim.DiscardOnce {
-		q("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack.SeqNum, sim.DiscardOnce)
+		//q("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack.SeqNum, sim.DiscardOnce)
 		sim.DiscardOnce = -1
 		return nil
 	}
@@ -286,14 +286,14 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 	pr := cryptoProb()
 	isLost := pr <= sim.LossProb
 	if sim.LossProb > 0 && isLost {
-		q("sim: bam! packet-lost! %v to %v", pack.SeqNum, pack.Dest)
+		//q("sim: bam! packet-lost! %v to %v", pack.SeqNum, pack.Dest)
 	} else {
-		q("sim: %v to %v: not lost. packet will arrive after %v", pack.SeqNum, pack.Dest, sim.Latency)
+		//q("sim: %v to %v: not lost. packet will arrive after %v", pack.SeqNum, pack.Dest, sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
 		go sim.sendWithLatency(ch, pack, sim.Latency)
 		if sim.heldBack != nil {
-			q("sim: reordering now -- sending along heldBack packet %v to %v",
-				sim.heldBack.SeqNum, sim.heldBack.Dest)
+			//q("sim: reordering now -- sending along heldBack packet %v to %v",
+			//	sim.heldBack.SeqNum, sim.heldBack.Dest)
 			go sim.sendWithLatency(ch, sim.heldBack, sim.Latency+20*time.Millisecond)
 			sim.heldBack = nil
 		}
@@ -309,8 +309,8 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 
 func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
 	<-time.After(lat)
-	q("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
-		pack.SeqNum, lat, pack.Dest)
+	//q("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
+	//	pack.SeqNum, lat, pack.Dest)
 	ch <- pack
 	//p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
 
