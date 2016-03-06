@@ -31,11 +31,6 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// begin generic nats setup
 	// ===============================
 
-	origdir, tempdir := MakeAndMoveToTempDir() // cd to tempdir
-	p("origdir = '%s'", origdir)
-	p("tempdir = '%s'", tempdir)
-	defer TempDirCleanup(origdir, tempdir)
-
 	host := "127.0.0.1"
 	port := GetAvailPort()
 	gnats := StartGnatsd(host, port)

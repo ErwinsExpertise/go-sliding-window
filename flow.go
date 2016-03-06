@@ -10,7 +10,7 @@ type FlowCtrl struct {
 }
 
 // FlowCtrl data is shared by sender and receiver,
-// so use the sender.GetFlowCtrl() method to safely serialize
+// so use the sender.FlowCt.UpdateFlow() method to safely serialize
 // access.
 type Flow struct {
 	// flow control params
