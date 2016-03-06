@@ -25,6 +25,9 @@ type RecvState struct {
 	DiscardCount int64
 
 	snd *SenderState
+
+	LastAvailReaderBytesCap int64
+	LastAvailReaderMsgCap   int64
 }
 
 // NewRecvState makes a new RecvState manager.
@@ -64,9 +67,17 @@ func (r *RecvState) Start() error {
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
+				// assert that our flow control was respected
+				/*
+					if r.LastAvailReaderMsgCap == 0 && pack.SeqNum >= 0 {
+						rep := ReportOnSubscription(r.Net.(*NatsNet).Cli.Scrip)
+						p("assert failing, cap was zero, rep = %#v", rep)
+						panic(fmt.Errorf("%v no receive capacity, yet received a packet: %#v / Data:'%s'", r.Inbox, pack, string(pack.Data)))
+					}
+				*/
 				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
-				r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
+				r.UpdateFlowControl()
 				// and tell snd about the new flow-control info
 				as := AckStatus{
 					OnlyUpdateFlowCtrl:  !pack.AckOnly,
@@ -136,9 +147,18 @@ func (r *RecvState) Start() error {
 	return nil
 }
 
+func (r *RecvState) UpdateFlowControl() {
+	begVal := r.LastAvailReaderMsgCap
+	flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
+	r.LastAvailReaderBytesCap = flow.AvailReaderBytesCap
+	r.LastAvailReaderMsgCap = flow.AvailReaderMsgCap
+	p("%v UpdateFlowControl in RecvState, bottom: r.LastAvailReaderMsgCap= %v -> %v",
+		r.Inbox, begVal, r.LastAvailReaderMsgCap)
+}
+
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
-	flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
+	r.UpdateFlowControl()
 	//q("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)
 	// send ack
@@ -148,8 +168,8 @@ func (r *RecvState) ack(seqno Seqno, dest string) {
 		SeqNum:              -99, // => ack flag
 		AckNum:              seqno,
 		AckOnly:             true,
-		AvailReaderBytesCap: flow.AvailReaderBytesCap,
-		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
+		AvailReaderBytesCap: r.LastAvailReaderBytesCap,
+		AvailReaderMsgCap:   r.LastAvailReaderMsgCap,
 	}
 	r.snd.SendAck <- ack
 }

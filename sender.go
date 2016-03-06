@@ -137,21 +137,23 @@ func (s *SenderState) Start() {
 				// maybe, if flow control info
 				// from the receiver agrees
 				if s.LastSeenAvailReaderMsgCap > 0 {
-					q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
+					p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
 					acceptSend = s.BlockingSend
 				} else {
-					q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v.", s.Inbox, s.LastSeenAvailReaderMsgCap)
+					p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v.", s.Inbox, s.LastSeenAvailReaderMsgCap)
 				}
 			} else {
-				q("%v slot-limit kicked in: not sending. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
+				p("%v slot-limit kicked in: not sending. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
 			}
 
+			p("%v top of sender select loop", s.Inbox)
 			select {
 			case <-s.keepAlive:
+				p("%v keepAlive at %v", s.Inbox, time.Now())
 				s.doKeepAlive()
 
 			case <-regularIntervalWakeup:
-				//q("%v regularIntervalWakeup at %v", time.Now(), s.Inbox)
+				p("%v regularIntervalWakeup at %v", s.Inbox, time.Now())
 
 				// have any of our packets timed-out and need to be
 				// sent again?
@@ -194,17 +196,19 @@ func (s *SenderState) Start() {
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
-				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
+				p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
 				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
-				q("%v sender GotAck a: %#v", s.Inbox, a)
+				p("%v sender GotAck a: %#v", s.Inbox, a)
 				// ack received - do sender side stuff
 				//
 				// flow control: respect a.AvailReaderBytesCap
 				// and a.AvailReaderMsgCap info that we have
 				// received from this ack
 				//
+				p("%v sender GotAck, updating s.LastSeenAvailReaderMsgCap %v -> %v",
+					s.Inbox, s.LastSeenAvailReaderMsgCap, a.AvailReaderMsgCap)
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
 				if a.OnlyUpdateFlowCtrl {
@@ -244,7 +248,7 @@ func (s *SenderState) Start() {
 			case ackPack := <-s.SendAck:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				q("%v doing Net.Send() SendAck request on ackPack: '%#v'",
+				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
 					s.Inbox, ackPack)
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				panicOn(err)
@@ -272,6 +276,11 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 
 	s.LastFrameSent++
 	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
+
+	p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
+		s.LastSeenAvailReaderBytesCap, s.LastSeenAvailReaderBytesCap-1)
+	s.LastSeenAvailReaderBytesCap -= int64(len(pack.Data))
+	s.LastSeenAvailReaderMsgCap--
 
 	lfs := s.LastFrameSent
 	pos := lfs % s.SenderWindowSize
