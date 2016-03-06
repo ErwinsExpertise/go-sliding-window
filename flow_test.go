@@ -98,9 +98,12 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	bytesLimit := 20000
 	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
 		ReservedByteCap: 5000,
-		ReservedMsgCap:  9,
+		ReservedMsgCap:  10,
 	}}
 	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
+
+	// msglimit 10 and reserved 10 should block
+	// all de novo sending
 
 	// ===============================
 	// setup publisher to produce at 5 messages/sec

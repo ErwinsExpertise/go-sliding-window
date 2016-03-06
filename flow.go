@@ -43,14 +43,14 @@ func (r *FlowCtrl) GetFlow() Flow {
 // flow information from the underlying
 // (nats) network. It returns the latest
 // info in the Flow structure.
-func (r *FlowCtrl) UpdateFlow(net Network) Flow {
+func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
 	r.mut.Lock()
 	defer r.mut.Unlock()
 
 	// ask nats/sim for current consumption
 	// of internal client buffers.
 	blim, mlim := net.BufferCaps()
-	p("UpdateFlow sees blim = %v,  mlim = %v", blim, mlim)
+	p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
 	r.flow.AvailReaderBytesCap = blim - r.flow.ReservedByteCap
 	r.flow.AvailReaderMsgCap = mlim - r.flow.ReservedMsgCap
 
@@ -60,7 +60,7 @@ func (r *FlowCtrl) UpdateFlow(net Network) Flow {
 	if r.flow.AvailReaderMsgCap < 0 {
 		r.flow.AvailReaderMsgCap = 0
 	}
-	p("end of UpdateFlow(), FlowCtrl.flow = '%#v'", r.flow)
+	p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'", who, r.flow)
 	cp := r.flow
 	return cp
 }

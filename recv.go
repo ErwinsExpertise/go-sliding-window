@@ -66,7 +66,7 @@ func (r *RecvState) Start() error {
 			case pack := <-r.MsgRecv:
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
-				r.snd.FlowCt.UpdateFlow(r.Net)
+				r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
 				// and tell snd about the new flow-control info
 				as := AckStatus{
 					OnlyUpdateFlowCtrl:  !pack.AckOnly,
@@ -75,8 +75,7 @@ func (r *RecvState) Start() error {
 					AvailReaderBytesCap: pack.AvailReaderBytesCap,
 					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 				}
-				p("tellng r.snd.GotAck <- as: '%#v'",
-					as)
+				p("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
 				select {
 				case r.snd.GotAck <- as:
 				case <-r.ReqStop:
@@ -139,7 +138,7 @@ func (r *RecvState) Start() error {
 
 // ack is a helper function, used in the recvloop above
 func (r *RecvState) ack(seqno Seqno, dest string) {
-	flow := r.snd.FlowCt.UpdateFlow(r.Net)
+	flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
 	q("%v about to send ack with AckNum: %v to %v",
 		r.Inbox, seqno, dest)
 	// send ack

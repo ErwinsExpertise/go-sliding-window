@@ -121,7 +121,7 @@ var ErrShutdown = fmt.Errorf("shutting down")
 
 // Push sends a message packet, blocking until that is done.
 func (sess *Session) Push(pack *Packet) {
-	//q("%v Push called", sess.MyInbox)
+	p("%v Push called", sess.MyInbox)
 	select {
 	case sess.Swp.Sender.BlockingSend <- pack:
 	case <-sess.Swp.Sender.ReqStop:

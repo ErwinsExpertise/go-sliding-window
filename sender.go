@@ -178,9 +178,10 @@ func (s *SenderState) Start() {
 					// reset deadline and resend
 					slot.RetryDeadline = time.Now().Add(s.Timeout)
 
-					flow := s.FlowCt.UpdateFlow(s.Net)
+					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
+					p("%v doing retry Net.Send()", s.Inbox)
 					err := s.Net.Send(slot.Pack)
 					panicOn(err)
 				}
@@ -190,6 +191,7 @@ func (s *SenderState) Start() {
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
+				p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
 				s.doSend(pack)
 
 			case a := <-s.GotAck:
@@ -237,6 +239,8 @@ func (s *SenderState) Start() {
 			case ackPack := <-s.SendAck:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
+				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
+					s.Inbox, ackPack)
 				err := s.Net.Send(ackPack)
 				panicOn(err)
 			}
@@ -280,7 +284,8 @@ func (s *SenderState) doSend(pack *Packet) {
 	slot.RetryDeadline = now.Add(s.Timeout)
 	s.LastSendTime = now
 
-	flow := s.FlowCt.UpdateFlow(s.Net)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net)
+	p("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	err := s.Net.Send(slot.Pack)
@@ -291,7 +296,8 @@ func (s *SenderState) doKeepAlive() {
 	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
 		return
 	}
-	flow := s.FlowCt.UpdateFlow(s.Net)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net)
+	p("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is
 	// *not* an ack, because we need it to be
@@ -305,6 +311,7 @@ func (s *SenderState) doKeepAlive() {
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
+	p("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap)
 	panicOn(err)
 
