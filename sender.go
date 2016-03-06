@@ -1,6 +1,7 @@
 package swp
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -93,10 +94,12 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 			ReservedByteCap: 64 * 1024,
 			ReservedMsgCap:  32,
 		}},
-		// some kind of sensible defaults... just guesses, but
-		// they'll get updated after the first ack.
-		LastSeenAvailReaderMsgCap:   10,
-		LastSeenAvailReaderBytesCap: 100 * 1024,
+		// don't start fast, as we could overwhelm
+		// the receiver. Instead start very slowly,
+		// allowing 1 message.
+		// It will get updated after the first ack.
+		LastSeenAvailReaderMsgCap:   0,
+		LastSeenAvailReaderBytesCap: 1024 * 1024,
 	}
 
 	return s
@@ -182,7 +185,7 @@ func (s *SenderState) Start() {
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 					p("%v doing retry Net.Send()", s.Inbox)
-					err := s.Net.Send(slot.Pack)
+					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
@@ -192,7 +195,7 @@ func (s *SenderState) Start() {
 				return
 			case pack := <-acceptSend:
 				p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
-				s.doSend(pack)
+				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
 				p("%v sender GotAck a: %#v", s.Inbox, a)
@@ -241,7 +244,7 @@ func (s *SenderState) Start() {
 				// could effectively livelock us.
 				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
 					s.Inbox, ackPack)
-				err := s.Net.Send(ackPack)
+				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				panicOn(err)
 			}
 		}
@@ -260,7 +263,8 @@ func (s *SenderState) Stop() {
 	<-s.Done
 }
 
-func (s *SenderState) doSend(pack *Packet) {
+// for first time sends of data, not retries or acks.
+func (s *SenderState) doOrigDataSend(pack *Packet) {
 	s.slotsAvail--
 	//q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
 
@@ -277,6 +281,7 @@ func (s *SenderState) doSend(pack *Packet) {
 	}
 	pack.From = s.Inbox
 	slot.Pack = pack
+	// data sends get stored in SentButNotAcked
 	s.SentButNotAcked[lfs] = slot
 
 	now := time.Now()
@@ -288,7 +293,7 @@ func (s *SenderState) doSend(pack *Packet) {
 	p("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
-	err := s.Net.Send(slot.Pack)
+	err := s.Net.Send(slot.Pack, fmt.Sprintf("doSend() for %v", s.Inbox))
 	panicOn(err)
 }
 
@@ -307,12 +312,13 @@ func (s *SenderState) doKeepAlive() {
 	kap := &Packet{
 		From:                s.Inbox,
 		Dest:                s.Dest,
+		SeqNum:              -777, // => keepalive
 		KeepAlive:           true,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
 	p("%v doing keepalive Net.Send()", s.Inbox)
-	err := s.Net.Send(kap)
+	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	panicOn(err)
 
 	s.keepAlive = time.After(s.KeepAliveInterval)

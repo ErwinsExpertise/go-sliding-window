@@ -156,7 +156,7 @@ type Network interface {
 
 	// Send transmits the packet. It is send and pray; no
 	// guarantee of delivery is made by the Network.
-	Send(pack *Packet) error
+	Send(pack *Packet, why string) error
 
 	// Listen starts receiving packets addressed to inbox on the returned channel.
 	Listen(inbox string) (chan *Packet, error)
@@ -194,8 +194,8 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 }
 
 // Send blocks until Send has started (but not until acked).
-func (n *NatsNet) Send(pack *Packet) error {
-	p("in NatsNet.Send(pack=%#v)", *pack)
+func (n *NatsNet) Send(pack *Packet, why string) error {
+	p("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err
@@ -252,8 +252,8 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 	return ch, nil
 }
 
-func (sim *SimNet) Send(pack *Packet) error {
-	//q("in SimNet.Send(pack=%#v)", *pack)
+func (sim *SimNet) Send(pack *Packet, why string) error {
+	//q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
 
 	sim.mapMut.Lock()
 	sim.TotalSent[pack.From]++

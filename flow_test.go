@@ -48,14 +48,14 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// setup nats clients for a publisher and a subscriber
 	// ===============================
 
-	subC := NewNatsClientConfig(host, port, "B", "B", true, true)
-	subC.AsyncErrPanics = true
+	subC := NewNatsClientConfig(host, port, "B", "B", true, false)
+	//subC.AsyncErrPanics = true
 	sub := NewNatsClient(subC)
 	err := sub.Start()
 	panicOn(err)
 	defer sub.Close()
 
-	pubC := NewNatsClientConfig(host, port, "A", "A", true, true)
+	pubC := NewNatsClientConfig(host, port, "A", "A", true, false)
 	pub := NewNatsClient(pubC)
 	err = pub.Start()
 	panicOn(err)
@@ -98,7 +98,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	bytesLimit := 20000
 	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
 		ReservedByteCap: 5000,
-		ReservedMsgCap:  10,
+		ReservedMsgCap:  9,
 	}}
 	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
 
