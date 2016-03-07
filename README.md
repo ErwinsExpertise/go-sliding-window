@@ -63,7 +63,7 @@ Per Peterson and Davie, the SWP has three benefits:
 
 ### status
 
-The library was test-driven and features a network simulator that simulates packet reordering, duplication, and loss. We pass tests with 20% packet loss easily. The library is usable now, but see the todo below. Also the network simulator could be improved by adding a chaos monkey mode that is even more aggressive about re-ordering, dropping, and duplicating packets.
+The library was test-driven and features a network simulator that simulates packet reordering, duplication, and loss. We pass tests with 20% packet loss easily. The library is usable now, but see the todo below. Also the network simulator could be improved by adding a chaos monkey mode that is even more aggressive about re-ordering and duplicating packets.
 
 ### todo
 
