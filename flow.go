@@ -45,7 +45,7 @@ func (r *FlowCtrl) GetFlow() Flow {
 // info in the Flow structure.
 //
 // NB: availReaderMsgCap is ignored if < 0, so
-// use -1 to indicte no update (just query existing values).
+// use -1 to indicate no update (just query existing values).
 // Same with availReaderBytesCap.
 func (r *FlowCtrl) UpdateFlow(who string, net Network,
 	availReaderMsgCap int64, availReaderBytesCap int64) Flow {
