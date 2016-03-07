@@ -48,7 +48,8 @@ func (r *FlowCtrl) GetFlow() Flow {
 // use -1 to indicate no update (just query existing values).
 // Same with availReaderBytesCap.
 func (r *FlowCtrl) UpdateFlow(who string, net Network,
-	availReaderMsgCap int64, availReaderBytesCap int64) Flow {
+	availReaderMsgCap int64, availReaderBytesCap int64,
+	pack *Packet) Flow {
 
 	r.mut.Lock()
 	defer r.mut.Unlock()

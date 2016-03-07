@@ -30,6 +30,7 @@ type AckStatus struct {
 // directly to the RecvState. The RecvState will
 // tell the Sender stuff on GotAck.
 type SenderState struct {
+	Clk              Clock
 	Net              Network
 	Inbox            string
 	Dest             string
@@ -73,8 +74,9 @@ type SenderState struct {
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
-	inbox string, destInbox string) *SenderState {
+	inbox string, destInbox string, clk Clock) *SenderState {
 	s := &SenderState{
+		Clk:              clk,
 		Net:              net,
 		Inbox:            inbox,
 		Dest:             destInbox,
@@ -211,7 +213,7 @@ func (s *SenderState) Start() {
 					slot.Pack.SeqRetry++
 					slot.Pack.DataSendTm = now
 
-					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1)
+					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 					q("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
@@ -339,7 +341,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	slot.RetryDeadline = now.Add(s.Timeout)
 	s.LastSendTime = now
 
-	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
 	//q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
@@ -351,18 +353,22 @@ func (s *SenderState) doKeepAlive() {
 	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
 		return
 	}
-	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
 	//q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is
 	// *not* an ack, because we need it to be
 	// acked itself so we get any updated
 	// flow control info from the other end.
-	s.LastSendTime = time.Now()
+	now := time.Now()
+	s.LastSendTime = now
 	kap := &Packet{
 		From:                s.Inbox,
 		Dest:                s.Dest,
 		SeqNum:              -777, // => keepalive
+		SeqRetry:            -777,
+		DataSendTm:          now,
+		AckRetry:            -777,
 		KeepAlive:           true,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,

@@ -14,6 +14,7 @@ type RxqSlot struct {
 
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
+	Clk                 Clock
 	Net                 Network
 	Inbox               string
 	NextFrameExpected   int64
@@ -79,9 +80,10 @@ type InOrderSeq struct {
 
 // NewRecvState makes a new RecvState manager.
 func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Duration,
-	inbox string, snd *SenderState) *RecvState {
+	inbox string, snd *SenderState, clk Clock) *RecvState {
 
 	r := &RecvState{
+		Clk:                 clk,
 		Net:                 net,
 		Inbox:               inbox,
 		RecvWindowSize:      recvSz,
@@ -289,9 +291,9 @@ func (r *RecvState) UpdateFlowControl(pack *Packet) {
 
 	// just like TCP flow control, where
 	// advertisedWindow = maxRecvBuffer - (lastByteRcvd - nextByteRead)
-	r.LastAvailReaderMsgCap = int64(r.RecvWindowSize - (r.LargestSeqnoRcvd - r.LastMsgConsumed))
+	r.LastAvailReaderMsgCap = r.RecvWindowSize - (r.LargestSeqnoRcvd - r.LastMsgConsumed)
 	r.LastAvailReaderBytesCap = r.RecvWindowSizeBytes - (r.MaxCumulBytesTrans - (r.LastByteConsumed + 1))
-	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap, r.LastAvailReaderBytesCap)
+	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap, r.LastAvailReaderBytesCap, pack)
 
 	q("%v UpdateFlowControl in RecvState, bottom: "+
 		"r.LastAvailReaderMsgCap= %v -> %v",

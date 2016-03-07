@@ -78,16 +78,23 @@ type Packet struct {
 
 	// DataSendTm is stamped anew on each data send and retry
 	// from the sender. Acks by the receiver are
-	// stamped with the AckTm field, and DataSendTm
-	// is preserved for each of round-trip time (RTT) computation.
+	// stamped with the AckReplyTm field, and DataSendTm
+	// is copied to the ack to make one-way estimates (if
+	// your clocks are synced) viable. Currently we do
+	// as TCP does and compute RTT based on the roundtrip
+	// from the originating endpoint, which avoids issues
+	// around clock skew.
+	//
 	// For the rationale for updating the timestamp on each
 	// retry, see the discussion of the Karn/Partridge
 	// algorithm, p302 of Peterson and Davie 1996.
+	//
 	// Summary: Accurate RTT requires accurate association of
 	// ack with which retry it is responding to, and thus
-	// this is the important time. If you need to know
-	// when a data packet was first/originally transmitted, see
-	// the TxqSlot.OrigSendTime value.
+	// time of the retry is the relevant one for RTT computation.
+	// If internally you need to know when a data packet was
+	// first/originally transmitted, see the TxqSlot.OrigSendTime
+	// value.
 	DataSendTm time.Time
 
 	SeqNum int64
@@ -137,10 +144,10 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
-	timeout time.Duration, inbox string, destInbox string) *SWP {
+	timeout time.Duration, inbox string, destInbox string, clk Clock) *SWP {
 
-	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox)
-	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk)
+	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk)
 	swp := &SWP{
 		Sender: snd,
 		Recver: rcv,
@@ -174,7 +181,8 @@ func NewSession(net Network,
 	destInbox string,
 	windowMsgSz int64,
 	windowByteSz int64,
-	timeout time.Duration) (*Session, error) {
+	timeout time.Duration,
+	clk Clock) (*Session, error) {
 
 	if windowMsgSz < 1 {
 		return nil, fmt.Errorf("windowMsgSz must be 1 or more")
@@ -186,7 +194,7 @@ func NewSession(net Network,
 	}
 
 	sess := &Session{
-		Swp:         NewSWP(net, windowMsgSz, windowByteSz, timeout, localInbox, destInbox),
+		Swp:         NewSWP(net, windowMsgSz, windowByteSz, timeout, localInbox, destInbox, clk),
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		Net:         net,
