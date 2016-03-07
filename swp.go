@@ -186,12 +186,12 @@ func NewSession(net Network,
 // Push sends a message packet, blocking until that is done.
 // You can use sess.CountPacketsSentForTransfer() to get
 // the total count of packets Push()-ed so far.
-func (sess *Session) Push(pack *Packet) {
+func (s *Session) Push(pack *Packet) {
 	select {
-	case sess.Swp.Sender.BlockingSend <- pack:
-		q("%v Push succeeded on payload '%s' into BlockingSend", sess.MyInbox, string(pack.Data))
-		sess.IncrPacketsSentForTransfer(1)
-	case <-sess.Swp.Sender.ReqStop:
+	case s.Swp.Sender.BlockingSend <- pack:
+		q("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
+		s.IncrPacketsSentForTransfer(1)
+	case <-s.Swp.Sender.ReqStop:
 		// give up, Sender is shutting down.
 	}
 }
@@ -199,14 +199,14 @@ func (sess *Session) Push(pack *Packet) {
 // SelfConsumeForTesting sets up a reader to read all produced
 // messages automatically. You can use CountPacketsReadConsumed() to
 // see the total number consumed thus far.
-func (sess *Session) SelfConsumeForTesting() {
+func (s *Session) SelfConsumeForTesting() {
 	go func() {
 		for {
 			select {
-			case <-sess.Swp.Recver.ReqStop:
+			case <-s.Swp.Recver.ReqStop:
 				return
-			case read := <-sess.ReadMessagesCh:
-				sess.IncrPacketsReadConsumed(int64(len(read.Seq)))
+			case read := <-s.ReadMessagesCh:
+				s.IncrPacketsReadConsumed(int64(len(read.Seq)))
 			}
 		}
 	}()
@@ -243,24 +243,24 @@ func (s *SWP) Start() {
 
 // CountPacketsReadConsumed reports on how many packets
 // the application has read from the session.
-func (sess *Session) CountPacketsReadConsumed() int64 {
-	return int64(atomic.LoadUint64(&sess.packetsConsumed))
+func (s *Session) CountPacketsReadConsumed() int64 {
+	return int64(atomic.LoadUint64(&s.packetsConsumed))
 }
 
 // IncrPacketsReadConsumed increment packetsConsumed and return the new total.
-func (sess *Session) IncrPacketsReadConsumed(n int64) int64 {
-	return int64(atomic.AddUint64(&sess.packetsConsumed, uint64(n)))
+func (s *Session) IncrPacketsReadConsumed(n int64) int64 {
+	return int64(atomic.AddUint64(&s.packetsConsumed, uint64(n)))
 }
 
 // CountPacketsSentForTransfer reports on how many packets.
 // the application has written to the session.
-func (sess *Session) CountPacketsSentForTransfer() int64 {
-	return int64(atomic.LoadUint64(&sess.packetsSent))
+func (s *Session) CountPacketsSentForTransfer() int64 {
+	return int64(atomic.LoadUint64(&s.packetsSent))
 }
 
 // IncrPacketsSentForTransfer increment packetsConsumed and return the new total.
-func (sess *Session) IncrPacketsSentForTransfer(n int64) int64 {
-	return int64(atomic.AddUint64(&sess.packetsSent, uint64(n)))
+func (s *Session) IncrPacketsSentForTransfer(n int64) int64 {
+	return int64(atomic.AddUint64(&s.packetsSent, uint64(n)))
 }
 
 // RegisterAsap registers a call back channel,
