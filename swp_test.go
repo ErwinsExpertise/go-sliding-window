@@ -29,6 +29,9 @@ func Test001Network(t *testing.T) {
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
 
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
+
 	p1 := &Packet{
 		From: "A",
 		Dest: "B",
@@ -63,6 +66,9 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
+
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
 
 	p1 := &Packet{
 		From: "A",
@@ -102,6 +108,9 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	// if LastSeenAvailReaderMsgCap is 1, then we never get
 	// to send re-ordered 2nd packet, so make it at least 2.
 	A.Swp.Sender.LastSeenAvailReaderMsgCap = 2
+
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
 
 	p1 := &Packet{
 		From: "A",
@@ -156,6 +165,9 @@ func Test004DuplicatedPacketIsDiscarded(t *testing.T) {
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
 
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
+
 	p2 := &Packet{
 		From: "A",
 		Dest: "B",
@@ -202,6 +214,9 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
+
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
 
 	n := 100
 	seq := make([]*Packet, n)

@@ -160,8 +160,8 @@ func (r *RecvState) Start() error {
 					// if not old dup, add to hash of to-be-consumed
 					if pack.SeqNum >= r.NextFrameExpected {
 						r.RcvdButNotConsumed[pack.SeqNum] = pack
-						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v",
-							r.Inbox, pack.SeqNum)
+						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: ",
+							r.Inbox, pack.SeqNum, r.HeldAsString())
 					}
 
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
@@ -262,4 +262,12 @@ func (r *RecvState) Stop() {
 	}
 	r.mut.Unlock()
 	<-r.Done
+}
+
+func (r *RecvState) HeldAsString() string {
+	s := ""
+	for sn := range r.RcvdButNotConsumed {
+		s += fmt.Sprintf("%v, ", sn)
+	}
+	return s
 }

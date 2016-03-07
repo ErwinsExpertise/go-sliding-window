@@ -151,7 +151,7 @@ func (s *SenderState) Start() {
 			//
 			bytesInflight, msgInflight := s.ComputeInflight()
 			q("%v bytesInflight = %v", s.Inbox, bytesInflight)
-			p("%v msgInflight = %v", s.Inbox, msgInflight)
+			q("%v msgInflight = %v", s.Inbox, msgInflight)
 
 			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 {
 				p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",

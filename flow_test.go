@@ -77,6 +77,9 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
+
 	// ===============================
 	// setup subscriber to consume at 1 message/sec
 	// ===============================
@@ -152,6 +155,9 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
 	B.Swp.Sender.LastFrameSent = 999
+
+	A.SelfConsumeForTesting()
+	B.SelfConsumeForTesting()
 
 	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
 		ReservedByteCap:     0,

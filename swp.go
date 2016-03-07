@@ -2,6 +2,7 @@ package swp
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,6 +88,9 @@ type Session struct {
 
 	Net            Network
 	ReadMessagesCh chan InOrderSeq
+
+	packetsConsumed uint64
+	packetsSent     uint64
 }
 
 // NewSession makes a new Session, and calls
@@ -112,13 +116,32 @@ func NewSession(net Network,
 var ErrShutdown = fmt.Errorf("shutting down")
 
 // Push sends a message packet, blocking until that is done.
+// You can use sess.CountPacketsSentForTransfer() to get
+// the total count of packets Push()-ed so far.
 func (sess *Session) Push(pack *Packet) {
 	select {
 	case sess.Swp.Sender.BlockingSend <- pack:
 		p("%v Push succeeded on payload '%s' into BlockingSend", sess.MyInbox, string(pack.Data))
+		sess.IncrPacketsSentForTransfer(1)
 	case <-sess.Swp.Sender.ReqStop:
 		// give up, Sender is shutting down.
 	}
+}
+
+// SelfConsumeForTesting sets up a reader to read all produced
+// messages automatically. You can use CountPacketsReadConsumed() to
+// see the total number consumed thus far.
+func (sess *Session) SelfConsumeForTesting() {
+	go func() {
+		for {
+			select {
+			case <-sess.Swp.Recver.ReqStop:
+				return
+			case read := <-sess.ReadMessagesCh:
+				sess.IncrPacketsReadConsumed(int64(len(read.Seq)))
+			}
+		}
+	}()
 }
 
 // InWindow returns true iff seqno is in [min, max].
@@ -148,4 +171,26 @@ func (s *SWP) Start() {
 	//q("SWP Start() called")
 	s.Recver.Start()
 	s.Sender.Start()
+}
+
+// CountPacketsReadConsumed reports on how many packets
+// the application has read from the session.
+func (sess *Session) CountPacketsReadConsumed() int64 {
+	return int64(atomic.LoadUint64(&sess.packetsConsumed))
+}
+
+// IncrPacketsReadConsumed increment packetsConsumed and return the new total.
+func (sess *Session) IncrPacketsReadConsumed(n int64) int64 {
+	return int64(atomic.AddUint64(&sess.packetsConsumed, uint64(n)))
+}
+
+// CountPacketsSentForTransfer reports on how many packets.
+// the application has written to the session.
+func (sess *Session) CountPacketsSentForTransfer() int64 {
+	return int64(atomic.LoadUint64(&sess.packetsSent))
+}
+
+// IncrPacketsSentForTransfer increment packetsConsumed and return the new total.
+func (sess *Session) IncrPacketsSentForTransfer(n int64) int64 {
+	return int64(atomic.AddUint64(&sess.packetsSent, uint64(n)))
 }
