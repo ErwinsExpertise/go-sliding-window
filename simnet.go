@@ -142,59 +142,6 @@ func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Durat
 	sim.mapMut.Unlock()
 }
 
-/*
-// helper for sendWithLatency, after send, before receive
-func (sim *SimNet) preCheckFlowControlNotViolated(pack *Packet) {
-	// check for advertising of flow parameters, and that data sends don't
-	// exceed the advertised
-	sim.mapMut.Lock()
-
-	var isData bool
-	if !pack.AckOnly && !pack.KeepAlive {
-		isData = true
-	}
-
-	// update
-	if isData {
-		// only if data:
-		sim.Inflight[pack.Dest]++
-	}
-
-	if isData {
-		// verify correct:
-		advert := sim.Advertised[pack.Dest]
-		inflight := sim.Inflight[pack.Dest]
-		if inflight > advert {
-			panic(fmt.Sprintf("inflight(%v) > advert(%v) so flow-control has been violated",
-				inflight, advert))
-		}
-	}
-
-	// update
-	// any kind of packet:
-	sim.Advertised[pack.From] = pack.AvailReaderMsgCap
-	q("sim: latest advertised from '%s' is pack.AvailReaderMsgCap: %v", pack.From, pack.AvailReaderMsgCap)
-
-	sim.mapMut.Unlock()
-}
-
-// helper for sendWithLatency, after receive
-func (sim *SimNet) postCheckFlowControlNotViolated(pack *Packet) {
-	sim.mapMut.Lock()
-
-	var isData bool
-	if !pack.AckOnly && !pack.KeepAlive {
-		isData = true
-	}
-	// update
-	if isData {
-		// only if data:
-		sim.Inflight[pack.Dest]--
-	}
-	sim.mapMut.Unlock()
-}
-*/
-
 // resolution controls the floating point
 // resolution in the cryptoProb routine.
 const resolution = 1 << 20
