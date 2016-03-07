@@ -1,5 +1,7 @@
 # go-sliding-window
 
+[Docs: https://godoc.org/github.com/glycerine/go-sliding-window](https://godoc.org/github.com/glycerine/go-sliding-window)
+
 ## description
 
 Package swp implements the same Sliding Window Protocol that
