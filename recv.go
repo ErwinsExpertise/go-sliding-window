@@ -161,7 +161,7 @@ func (r *RecvState) Start() error {
 					// if not old dup, add to hash of to-be-consumed
 					if pack.SeqNum >= r.NextFrameExpected {
 						r.RcvdButNotConsumed[pack.SeqNum] = pack
-						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: ",
+						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
 							r.Inbox, pack.SeqNum, r.HeldAsString())
 					}
 
