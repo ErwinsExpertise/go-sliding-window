@@ -27,8 +27,10 @@ type RecvState struct {
 
 	snd *SenderState
 
-	LastMsgConsumed  Seqno
-	LargestSeqnoRcvd Seqno
+	LastMsgConsumed       Seqno
+	LargestSeqnoRcvd      Seqno
+	LargestBytesTransRcvd int64
+	LastByteConsumed      int64
 
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
@@ -70,6 +72,7 @@ func NewRecvState(net Network, recvSz int64, timeout time.Duration,
 		ReadMessagesCh:     make(chan InOrderSeq),
 		LastMsgConsumed:    -1,
 		LargestSeqnoRcvd:   -1,
+		LastByteConsumed:   -1,
 		NumHeldMessages:    make(chan int64),
 	}
 
@@ -116,6 +119,7 @@ func (r *RecvState) Start() error {
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
 					r.LastMsgConsumed = pack.SeqNum
 				}
+				r.LastByteConsumed = delivery.Seq[0].CumulBytesTransmitted - int64(len(delivery.Seq[0].Data))
 				r.ReadyForDelivery = r.ReadyForDelivery[:0]
 			case <-r.ReqStop:
 				//q("%v recvloop sees ReqStop, shutting down.", r.Inbox)
@@ -132,7 +136,15 @@ func (r *RecvState) Start() error {
 				*/
 				if pack.SeqNum > r.LargestSeqnoRcvd {
 					r.LargestSeqnoRcvd = pack.SeqNum
+					if pack.CumulBytesTransmitted < r.LargestBytesTransRcvd {
+						panic("invariant that pack.CumulBytesTransmitted >= r.LargestBytesTransRcvd failed.")
+					}
+					r.LargestBytesTransRcvd = pack.CumulBytesTransmitted
 				}
+				if pack.CumulBytesTransmitted > r.LargestBytesTransRcvd {
+					panic("invariant that pack.CumulBytesTransmitted goes in packet SeqNum order failed.")
+				}
+
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.UpdateFlowControl()

@@ -305,7 +305,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	s.LastFrameSent++
 	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
-	s.TotalBytesSent += len(pack.Data)
+	s.TotalBytesSent += int64(len(pack.Data))
 	pack.CumulBytesTransmitted = s.TotalBytesSent
 
 	//p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
