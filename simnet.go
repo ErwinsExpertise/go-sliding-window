@@ -58,12 +58,17 @@ func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 	return s
 }
 
+// Listen returns a channel that will be sent on when
+// packets have Dest inbox.
 func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 	ch := make(chan *Packet)
 	sim.Net[inbox] = ch
 	return ch, nil
 }
 
+// Send sends the packet pack to pack.Dest. The why
+// annoation is optional and allows the logs to illumate
+// the purpose of each send (ack, keepAlive, data, etc).
 func (sim *SimNet) Send(pack *Packet, why string) error {
 	//q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
 
@@ -190,6 +195,8 @@ func (sim *SimNet) postCheckFlowControlNotViolated(pack *Packet) {
 
 const resolution = 1 << 20
 
+// cryptoProb returns a random number between
+// [0, 1] inclusive.
 func cryptoProb() float64 {
 	b := make([]byte, 8)
 	_, err := cryptorand.Read(b)
@@ -203,6 +210,8 @@ func cryptoProb() float64 {
 	return float64(r) / float64(resolution)
 }
 
+// Sum is output by the Simnet.Summary function to
+// summarize the packet losses in a network simulation.
 type Sum struct {
 	ObsKeepRateFromA float64
 	ObsKeepRateFromB float64
@@ -212,6 +221,7 @@ type Sum struct {
 	trb              int64
 }
 
+// Summary summarizes the packet drops in a Sum report.
 func (net *SimNet) Summary() *Sum {
 	net.mapMut.Lock()
 	defer net.mapMut.Unlock()
@@ -227,6 +237,7 @@ func (net *SimNet) Summary() *Sum {
 	return s
 }
 
+// Print displays the Sum report.
 func (s *Sum) Print() {
 	fmt.Printf("\n summary: packets A sent %v   -> B packets rcvd %v  [kept %.01f%%, lost %.01f%%]\n",
 		s.tsa, s.trb, 100.0*s.ObsKeepRateFromA, 100.0*(1.0-s.ObsKeepRateFromA))
