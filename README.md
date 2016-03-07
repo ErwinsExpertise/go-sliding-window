@@ -29,7 +29,9 @@ TCP sliding window and flow-control mechanism in a
 Session between two nats clients. It provides flow
 control between exactly two nats endpoints; in many
 cases this is sufficient to allow all subscribers to
-keep up.
+keep up. If you have a wide variation in consumer
+performance, establish the rate-controlling
+`swp` Session between your producer and your slowest consumer.
 
 There is also a Session.RegisterAsap() API that can be
 used to obtain the same possibly-out-of-order but as-soon-as-possible
