@@ -61,6 +61,7 @@ type SenderState struct {
 	TotalBytesSent int64
 }
 
+// NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 	inbox string, destInbox string) *SenderState {
 	s := &SenderState{
@@ -102,6 +103,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 	return s
 }
 
+// ComputeInflight returns the number of bytes and messages
+// that are in-flight: they have been sent but not yet acked.
 func (s *SenderState) ComputeInflight() (bytesInflight int64, msgInflight int64) {
 	for _, slot := range s.SentButNotAcked {
 		msgInflight++
