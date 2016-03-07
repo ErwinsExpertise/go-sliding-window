@@ -38,9 +38,19 @@ type RecvState struct {
 
 	RcvdButNotConsumed map[Seqno]*Packet
 
-	ReadyForDelivery []*Packet
-	ReadMessagesCh   chan InOrderSeq
-	NumHeldMessages  chan int64
+	ReadyForDelivery          []*Packet
+	ReadMessagesCh            chan InOrderSeq
+	ReadMessageOutOfOrderASAP chan *Packet
+	NumHeldMessages           chan int64
+
+	// if AsapHelper is non-nil the recevier will
+	// send any packets to the AsapHelper
+	// for delivery to clients as soon as they arrive
+	// but without ordering guarantees;
+	// and we may also drop packets if
+	// the receive doesn't happen within
+	// 100 msec.
+	AsapHelper *AsapHelper
 }
 
 // InOrderSeq represents ordered (and gapless)
@@ -56,25 +66,26 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 	inbox string, snd *SenderState) *RecvState {
 
 	r := &RecvState{
-		Net:                 net,
-		Inbox:               inbox,
-		RecvWindowSize:      Seqno(recvSz),
-		RecvWindowSizeBytes: recvSzBytes,
-		Rxq:                 make([]*RxqSlot, recvSz),
-		Timeout:             timeout,
-		RecvHistory:         make([]*Packet, 0),
-		ReqStop:             make(chan bool),
-		Done:                make(chan bool),
-		RecvSz:              recvSz,
-		snd:                 snd,
-		RcvdButNotConsumed:  make(map[Seqno]*Packet),
-		ReadyForDelivery:    make([]*Packet, 0),
-		ReadMessagesCh:      make(chan InOrderSeq),
-		LastMsgConsumed:     -1,
-		LargestSeqnoRcvd:    -1,
-		MaxCumulBytesTrans:  0,
-		LastByteConsumed:    -1,
-		NumHeldMessages:     make(chan int64),
+		Net:                       net,
+		Inbox:                     inbox,
+		RecvWindowSize:            Seqno(recvSz),
+		RecvWindowSizeBytes:       recvSzBytes,
+		Rxq:                       make([]*RxqSlot, recvSz),
+		Timeout:                   timeout,
+		RecvHistory:               make([]*Packet, 0),
+		ReqStop:                   make(chan bool),
+		Done:                      make(chan bool),
+		RecvSz:                    recvSz,
+		snd:                       snd,
+		RcvdButNotConsumed:        make(map[Seqno]*Packet),
+		ReadyForDelivery:          make([]*Packet, 0),
+		ReadMessagesCh:            make(chan InOrderSeq),
+		LastMsgConsumed:           -1,
+		LargestSeqnoRcvd:          -1,
+		MaxCumulBytesTrans:        0,
+		LastByteConsumed:          -1,
+		NumHeldMessages:           make(chan int64),
+		ReadMessageOutOfOrderASAP: make(chan *Packet),
 	}
 
 	for i := range r.Rxq {
@@ -83,8 +94,9 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 	return r
 }
 
-// RecvStart receives. It receives both data and acks from earlier sends.
-// It starts a go routine in the background.
+// Start begins receiving. RecvStates receives both
+// data and acks from earlier sends.
+// Start launches a go routine in the background.
 func (r *RecvState) Start() error {
 	mr, err := r.Net.Listen(r.Inbox)
 	if err != nil {
@@ -127,14 +139,19 @@ func (r *RecvState) Start() error {
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
-				// assert that our flow control was respected
-				/*
-					if r.LastAvailReaderMsgCap == 0 && pack.SeqNum >= 0 {
-						rep := ReportOnSubscription(r.Net.(*NatsNet).Cli.Scrip)
-						p("assert failing, cap was zero, rep = %#v", rep)
-						panic(fmt.Errorf("%v no receive capacity, yet received a packet: %#v / Data:'%s'", r.Inbox, pack, string(pack.Data)))
+
+				// tell any ASAP clients about it
+				if r.AsapHelper != nil {
+					select {
+					case r.AsapHelper.enqueue <- pack:
+					case <-time.After(300 * time.Millisecond):
+						// drop packet
+					case <-r.ReqStop:
+						close(r.Done)
+						return
 					}
-				*/
+				}
+
 				if pack.SeqNum > r.LargestSeqnoRcvd {
 					r.LargestSeqnoRcvd = pack.SeqNum
 					if pack.CumulBytesTransmitted < r.MaxCumulBytesTrans {
