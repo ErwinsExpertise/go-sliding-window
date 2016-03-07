@@ -52,10 +52,10 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 			Data: []byte("two"),
 		}
 		A.Push(p2)
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 		held = <-B.Swp.Recver.NumHeldMessages
-		cv.So(held, cv.ShouldEqual, 1)
+		cv.So(held, cv.ShouldEqual, 1) // sometimes 0 if super slow, probably 100 msec not enough
 
 		read = <-B.ReadMessagesCh
 		for i := range read.Seq {
