@@ -7,9 +7,10 @@ import (
 // AsapHelper is a simple queue
 // goroutine that delivers packets
 // to ASAP clients as soon as they
-// become avaialable (duplicating
-// the in order delivery).
-//
+// become avaialable. Packets may
+// be dropped, duplicated, or
+// misordered, but they will be
+// delivered as soon as possible.
 type AsapHelper struct {
 	ReqStop chan bool
 	Done    chan bool
