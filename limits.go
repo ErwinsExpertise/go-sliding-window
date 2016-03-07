@@ -5,6 +5,7 @@ import (
 	"github.com/nats-io/nats"
 )
 
+// SubReport is the output of ReportOnSubscriptions.
 type SubReport struct {
 	Delivered          int64
 	Dropped            int
@@ -17,6 +18,10 @@ type SubReport struct {
 	SubscriptionActive bool
 }
 
+// ReportOnSubscription describes the status of the
+// nats subscription s in terms of a SubReport with
+// details the backing memory used and how close to
+// the limits the client currently is.
 func ReportOnSubscription(s *nats.Subscription) *SubReport {
 
 	// Delivered returns the number of delivered messages for this subscription.
@@ -64,6 +69,7 @@ func ReportOnSubscription(s *nats.Subscription) *SubReport {
 	return sr
 }
 
+// SetSubscriptionLimits changes the limits in the subscription sub.
 func SetSubscriptionLimits(sub *nats.Subscription,
 	msgLimit int,
 	bytesLimit int) error {
