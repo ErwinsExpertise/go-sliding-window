@@ -34,29 +34,9 @@ type SimNet struct {
 	Advertised map[string]int64
 	Inflight   map[string]int64
 
-	// receive linearization, so we can
-	// properly check the accounting of the
-	// flow control
-	// LinearizeReceives chan Linear
-
 	ReqStop chan bool
 	Done    chan bool
 }
-
-type Linear struct {
-	Pack   *Packet
-	DestCh chan *Packet
-}
-
-/*
-// BufferCaps returns the byte and message limits
-// currently in effect, so that flow control
-// can be used to avoid sender overrunning them.
-func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
-	// limits so high they shouldn't be restrictive
-	return 1024 * 1024 * 1024, 1024
-}
-*/
 
 // NewSimNet makes a network simulator. The
 // latency is one-way trip time; lossProb is the probability of
@@ -75,31 +55,8 @@ func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 		ReqStop: make(chan bool),
 		Done:    make(chan bool),
 	}
-	//s.StartLinearizer()
 	return s
 }
-
-/*
-// deliver packets in a linearized order,
-// serialized throught the single s.LinearizeReceives channel,
-// so flow control can be verified.
-func (sim *SimNet) StartLinearizer() {
-	go func() {
-		for {
-			select {
-			case lin := <-sim.LinearizeReceives:
-				select {
-				case lin.DestCh <- lin.Pack:
-				case <-sim.ReqStop:
-					return
-				}
-			case <-sim.ReqStop:
-				return
-			}
-		}
-	}()
-}
-*/
 
 func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 	ch := make(chan *Packet)

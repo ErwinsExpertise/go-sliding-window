@@ -15,7 +15,7 @@ type certConfig struct {
 	keyPath   string
 	caPath    string
 	cert      tls.Certificate
-	tlsConfig tls.Config
+	tlsConfig *tls.Config
 	rootCA    nats.Option
 	skipTLS   bool
 }
@@ -36,13 +36,13 @@ func (cc *certConfig) init(tlsDir string) {
 }
 
 func (cc *certConfig) certLoad() error {
-	if !FileExists(cc.certPath) {
+	if !fileExists(cc.certPath) {
 		return fmt.Errorf("certLoad: path '%s' does not exist", cc.certPath)
 	}
-	if !FileExists(cc.keyPath) {
+	if !fileExists(cc.keyPath) {
 		return fmt.Errorf("certLoad: path '%s' does not exist", cc.keyPath)
 	}
-	if !FileExists(cc.caPath) {
+	if !fileExists(cc.caPath) {
 		return fmt.Errorf("certLoad: path '%s' does not exist", cc.caPath)
 	}
 	cert, err := tls.LoadX509KeyPair(cc.certPath, cc.keyPath)
@@ -68,7 +68,7 @@ func (cc *certConfig) certLoad() error {
 
 	cc.rootCA = nats.RootCAs(cc.caPath)
 
-	cc.tlsConfig = tls.Config{
+	cc.tlsConfig = &tls.Config{
 		Certificates: []tls.Certificate{cc.cert},
 		MinVersion:   tls.VersionTLS12,
 	}

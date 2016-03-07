@@ -60,7 +60,7 @@ type SenderState struct {
 
 	// do synchronized access via GetFlow()
 	// and UpdateFlow(s.Net)
-	FlowCt         FlowCtrl
+	FlowCt         *FlowCtrl
 	TotalBytesSent int64
 }
 
@@ -87,7 +87,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
 		KeepAliveInterval: 100 * time.Millisecond,
-		FlowCt: FlowCtrl{flow: Flow{
+		FlowCt: &FlowCtrl{flow: Flow{
 			ReservedByteCap: 64 * 1024,
 			ReservedMsgCap:  32,
 		}},

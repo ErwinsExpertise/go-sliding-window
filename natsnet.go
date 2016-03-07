@@ -37,7 +37,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 		panicOn(err)
 		mr <- &pack
 	})
-	p("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
+	q("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
 	return mr, err
 }
 

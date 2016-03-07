@@ -10,11 +10,4 @@ type Network interface {
 
 	// Listen starts receiving packets addressed to inbox on the returned channel.
 	Listen(inbox string) (chan *Packet, error)
-
-	// BufferCaps returns the byte and message limits
-	// currently in effect, so that flow control
-	// can be used to avoid sender overrunning them.
-	// Not necessarily safe for concurrent access, so serialize
-	// access if the Network is shared.
-	//BufferCaps() (bytecap int64, msgcap int64)
 }

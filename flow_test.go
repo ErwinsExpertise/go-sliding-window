@@ -94,7 +94,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// when trying to send 100 messages in a row.
 	msgLimit := 10
 	bytesLimit := 20000
-	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
+	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
 		ReservedByteCap: 5000,
 		ReservedMsgCap:  9,
 	}}
@@ -159,13 +159,13 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
 
-	B.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
+	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
 		ReservedByteCap:     0,
 		ReservedMsgCap:      0,
 		AvailReaderBytesCap: 5000,
 		AvailReaderMsgCap:   1,
 	}}
-	A.Swp.Sender.FlowCt = FlowCtrl{flow: Flow{
+	A.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
 		ReservedByteCap:     0,
 		ReservedMsgCap:      0,
 		AvailReaderBytesCap: 5000,

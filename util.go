@@ -117,6 +117,9 @@ func PortIsBound(addr string) bool {
 	return true
 }
 
+// NatsClient wraps a nats.Conn, a nats.Subscription,
+// and a message arrival channel into an easy to use
+// and easy to configure (even with TLS) structure.
 type NatsClient struct {
 	Nc           *nats.Conn
 	Scrip        *nats.Subscription
@@ -125,6 +128,7 @@ type NatsClient struct {
 	Subject      string
 }
 
+// NewNatsClient creates a new NatsClient.
 func NewNatsClient(cfg *NatsClientConfig) *NatsClient {
 	c := &NatsClient{
 		MsgArrivalCh: make(chan *nats.Msg),
@@ -134,6 +138,7 @@ func NewNatsClient(cfg *NatsClientConfig) *NatsClient {
 	return c
 }
 
+// Start connects to the gnatsd server.
 func (s *NatsClient) Start() error {
 	//	s.Cfg.AsyncErrPanics = true
 	s.Cfg.Init()
@@ -146,6 +151,8 @@ func (s *NatsClient) Start() error {
 	return nil
 }
 
+// MakeSub creates a nats subscription on subject with the
+// hand as the callback handler.
 func (s *NatsClient) MakeSub(subject string, hand nats.MsgHandler) error {
 	var err error
 	s.Scrip, err = s.Nc.Subscribe(s.Subject, hand)
@@ -153,6 +160,8 @@ func (s *NatsClient) MakeSub(subject string, hand nats.MsgHandler) error {
 	return err
 }
 
+// Close unsubscribes from the nats subscription and closes
+// the nats.Conn connection.
 func (s *NatsClient) Close() {
 	if s.Scrip != nil {
 		err := s.Scrip.Unsubscribe()
@@ -170,6 +179,8 @@ type asyncErr struct {
 	err  error
 }
 
+// NewNatsClientConfig creates a new config struct
+// to provide to NewNatsClient.
 func NewNatsClientConfig(
 	host string,
 	port int,
@@ -190,6 +201,8 @@ func NewNatsClientConfig(
 	return cfg
 }
 
+// NatsClientConfig provides the nats configuration
+// for the NatsClient.
 type NatsClientConfig struct {
 	// ====================
 	// user supplied
@@ -219,6 +232,8 @@ type NatsClientConfig struct {
 	Certs certConfig
 }
 
+// Init initializes the nats options and
+// loads the TLS certificates, if any.
 func (cfg *NatsClientConfig) Init() {
 
 	if !cfg.SkipTLS && !cfg.Certs.skipTLS {
@@ -253,7 +268,7 @@ func (cfg *NatsClientConfig) Init() {
 	}))
 
 	if !cfg.SkipTLS && !cfg.Certs.skipTLS {
-		o = append(o, nats.Secure(&cfg.Certs.tlsConfig))
+		o = append(o, nats.Secure(cfg.Certs.tlsConfig))
 		o = append(o, cfg.Certs.rootCA)
 	}
 
