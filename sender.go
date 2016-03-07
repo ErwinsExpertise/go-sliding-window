@@ -35,11 +35,10 @@ type SenderState struct {
 	BlockingSend chan *Packet
 	GotAck       chan AckStatus
 
-	ReqStop     chan bool
-	Done        chan bool
-	SendHistory []*Packet
-	SendSz      int64
-	//	slotsAvail   int64
+	ReqStop      chan bool
+	Done         chan bool
+	SendHistory  []*Packet
+	SendSz       int64
 	SendAck      chan *Packet
 	DiscardCount int64
 
@@ -52,10 +51,7 @@ type SenderState struct {
 	// flow control params
 	// last seen from our downstream
 	// receiver, we throttle ourselves
-	// based on these. For example, our
-	// effective usable window is
-	//   min(LastSeenAvailReaderMsgCap, slotsAvail)
-	// for count of messages we can send.
+	// based on these.
 	LastSeenAvailReaderBytesCap int64
 	LastSeenAvailReaderMsgCap   int64
 
@@ -122,7 +118,6 @@ func (s *SenderState) ComputeInflight() (bytesInflight int64, msgInflight int64)
 func (s *SenderState) Start() {
 
 	go func() {
-		//s.slotsAvail = s.SendSz
 
 		var acceptSend chan *Packet
 
@@ -140,8 +135,8 @@ func (s *SenderState) Start() {
 			//q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
 			//	s.Inbox, s.LastAckRec, s.LastFrameSent)
 
-			// do we have capacity to accept a send?
-			// do a conditional receive. Start by
+			// does the downstream reader have capacity to accept a send?
+			// Block any new sends if so. We do a conditional receive. Start by
 			// assuming no:
 			acceptSend = nil
 
@@ -154,12 +149,16 @@ func (s *SenderState) Start() {
 			q("%v bytesInflight = %v", s.Inbox, bytesInflight)
 			q("%v msgInflight = %v", s.Inbox, msgInflight)
 
-			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 {
+			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 &&
+				s.LastSeenAvailReaderBytesCap-bytesInflight > 0 {
 				p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
 					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 				acceptSend = s.BlockingSend
 			} else {
-				p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v <= msgInflight %v", s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
+				p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
+					" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
+					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
+					s.LastSeenAvailReaderBytesCap, bytesInflight)
 			}
 
 			p("%v top of sender select loop", s.Inbox)
