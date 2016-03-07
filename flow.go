@@ -46,12 +46,17 @@ func (r *FlowCtrl) GetFlow() Flow {
 //
 // NB: availReaderMsgCap is ignored if < 0, so
 // use -1 to indicte no update (just query existing values).
-//
-func (r *FlowCtrl) UpdateFlow(who string, net Network, availReaderMsgCap int64) Flow {
+// Same with availReaderBytesCap.
+func (r *FlowCtrl) UpdateFlow(who string, net Network,
+	availReaderMsgCap int64, availReaderBytesCap int64) Flow {
+
 	r.mut.Lock()
 	defer r.mut.Unlock()
 	if availReaderMsgCap >= 0 {
-		r.flow.AvailReaderBytesCap = availReaderMsgCap
+		r.flow.AvailReaderMsgCap = availReaderMsgCap
+	}
+	if availReaderBytesCap >= 0 {
+		r.flow.AvailReaderBytesCap = availReaderBytesCap
 	}
 	/*
 		// ask nats/sim for current consumption

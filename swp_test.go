@@ -24,9 +24,9 @@ func Test001Network(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 2 * lat
 
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, -1, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, -1, rtt)
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -62,9 +62,9 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 	net.DiscardOnce = Seqno(0)
 	rtt := 2 * lat
 
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, -1, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, -1, rtt)
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -101,9 +101,9 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 
 	p("effectively turning off replays for this test")
 	rtt = time.Hour
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, -1, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, -1, rtt)
 	panicOn(err)
 	// if LastSeenAvailReaderMsgCap is 1, then we never get
 	// to send re-ordered 2nd packet, so make it at least 2.
@@ -160,9 +160,9 @@ func Test004DuplicatedPacketIsDiscarded(t *testing.T) {
 
 	p("effectively turning off replays for this test")
 	rtt = time.Hour
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, -1, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, -1, rtt)
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -209,9 +209,9 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 3 * lat
 
-	A, err := NewSession(net, "A", "B", 3, rtt)
+	A, err := NewSession(net, "A", "B", 3, -1, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt)
+	B, err := NewSession(net, "B", "A", 3, -1, rtt)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 

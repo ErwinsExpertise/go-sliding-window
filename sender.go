@@ -199,7 +199,7 @@ func (s *SenderState) Start() {
 					// reset deadline and resend
 					slot.RetryDeadline = time.Now().Add(s.Timeout)
 
-					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1)
+					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 					p("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
@@ -331,7 +331,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	slot.RetryDeadline = now.Add(s.Timeout)
 	s.LastSendTime = now
 
-	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
 	q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
@@ -343,7 +343,7 @@ func (s *SenderState) doKeepAlive() {
 	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
 		return
 	}
-	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1)
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
 	q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is

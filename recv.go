@@ -8,14 +8,15 @@ import (
 
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
-	Net               Network
-	Inbox             string
-	NextFrameExpected Seqno
-	Rxq               []*RxqSlot
-	RecvWindowSize    Seqno
-	mut               sync.Mutex
-	Timeout           time.Duration
-	RecvHistory       []*Packet
+	Net                 Network
+	Inbox               string
+	NextFrameExpected   Seqno
+	Rxq                 []*RxqSlot
+	RecvWindowSize      Seqno
+	RecvWindowSizeBytes int64
+	mut                 sync.Mutex
+	Timeout             time.Duration
+	RecvHistory         []*Packet
 
 	MsgRecv chan *Packet
 
@@ -27,10 +28,10 @@ type RecvState struct {
 
 	snd *SenderState
 
-	LastMsgConsumed       Seqno
-	LargestSeqnoRcvd      Seqno
-	LargestBytesTransRcvd int64
-	LastByteConsumed      int64
+	LastMsgConsumed    Seqno
+	LargestSeqnoRcvd   Seqno
+	MaxCumulBytesTrans int64
+	LastByteConsumed   int64
 
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
@@ -53,27 +54,29 @@ type InOrderSeq struct {
 }
 
 // NewRecvState makes a new RecvState manager.
-func NewRecvState(net Network, recvSz int64, timeout time.Duration,
+func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Duration,
 	inbox string, snd *SenderState) *RecvState {
 
 	r := &RecvState{
-		Net:                net,
-		Inbox:              inbox,
-		RecvWindowSize:     Seqno(recvSz),
-		Rxq:                make([]*RxqSlot, recvSz),
-		Timeout:            timeout,
-		RecvHistory:        make([]*Packet, 0),
-		ReqStop:            make(chan bool),
-		Done:               make(chan bool),
-		RecvSz:             recvSz,
-		snd:                snd,
-		RcvdButNotConsumed: make(map[Seqno]*Packet),
-		ReadyForDelivery:   make([]*Packet, 0),
-		ReadMessagesCh:     make(chan InOrderSeq),
-		LastMsgConsumed:    -1,
-		LargestSeqnoRcvd:   -1,
-		LastByteConsumed:   -1,
-		NumHeldMessages:    make(chan int64),
+		Net:                 net,
+		Inbox:               inbox,
+		RecvWindowSize:      Seqno(recvSz),
+		RecvWindowSizeBytes: recvSzBytes,
+		Rxq:                 make([]*RxqSlot, recvSz),
+		Timeout:             timeout,
+		RecvHistory:         make([]*Packet, 0),
+		ReqStop:             make(chan bool),
+		Done:                make(chan bool),
+		RecvSz:              recvSz,
+		snd:                 snd,
+		RcvdButNotConsumed:  make(map[Seqno]*Packet),
+		ReadyForDelivery:    make([]*Packet, 0),
+		ReadMessagesCh:      make(chan InOrderSeq),
+		LastMsgConsumed:     -1,
+		LargestSeqnoRcvd:    -1,
+		MaxCumulBytesTrans:  0,
+		LastByteConsumed:    -1,
+		NumHeldMessages:     make(chan int64),
 	}
 
 	for i := range r.Rxq {
@@ -136,12 +139,12 @@ func (r *RecvState) Start() error {
 				*/
 				if pack.SeqNum > r.LargestSeqnoRcvd {
 					r.LargestSeqnoRcvd = pack.SeqNum
-					if pack.CumulBytesTransmitted < r.LargestBytesTransRcvd {
-						panic("invariant that pack.CumulBytesTransmitted >= r.LargestBytesTransRcvd failed.")
+					if pack.CumulBytesTransmitted < r.MaxCumulBytesTrans {
+						panic("invariant that pack.CumulBytesTransmitted >= r.MaxCumulBytesTrans failed.")
 					}
-					r.LargestBytesTransRcvd = pack.CumulBytesTransmitted
+					r.MaxCumulBytesTrans = pack.CumulBytesTransmitted
 				}
-				if pack.CumulBytesTransmitted > r.LargestBytesTransRcvd {
+				if pack.CumulBytesTransmitted > r.MaxCumulBytesTrans {
 					panic("invariant that pack.CumulBytesTransmitted goes in packet SeqNum order failed.")
 				}
 
@@ -234,7 +237,8 @@ func (r *RecvState) UpdateFlowControl() {
 	// just like TCP flow control, where
 	// advertisedWindow = maxRecvBuffer - (lastByteRcvd - nextByteRead)
 	r.LastAvailReaderMsgCap = int64(r.RecvWindowSize - (r.LargestSeqnoRcvd - r.LastMsgConsumed))
-	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap)
+	r.LastAvailReaderBytesCap = r.RecvWindowSizeBytes - (r.MaxCumulBytesTrans - (r.LastByteConsumed + 1))
+	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap, r.LastAvailReaderBytesCap)
 
 	/*
 		begVal := r.LastAvailReaderMsgCap

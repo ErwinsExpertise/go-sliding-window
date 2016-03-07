@@ -71,13 +71,11 @@ type SWP struct {
 
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
-func NewSWP(net Network, windowSize int64,
+func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
 	timeout time.Duration, inbox string, destInbox string) *SWP {
 
-	recvSz := windowSize
-	sendSz := windowSize
-	snd := NewSenderState(net, sendSz, timeout, inbox, destInbox)
-	rcv := NewRecvState(net, recvSz, timeout, inbox, snd)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox)
+	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd)
 	swp := &SWP{
 		Sender: snd,
 		Recver: rcv,
@@ -102,14 +100,28 @@ type Session struct {
 
 // NewSession makes a new Session, and calls
 // Swp.Start to begin the sliding-window-protocol.
+//
+// If windowByteSz is negative or less than windowMsgSz,
+// we estimate a byte size based on 10kb messages and the given windowMsgSz.
+//
 func NewSession(net Network,
 	localInbox string,
 	destInbox string,
-	windowSz int64,
+	windowMsgSz int64,
+	windowByteSz int64,
 	timeout time.Duration) (*Session, error) {
 
+	if windowMsgSz < 1 {
+		return nil, fmt.Errorf("windowMsgSz must be 1 or more")
+	}
+
+	if windowByteSz < windowMsgSz {
+		// guestimate
+		windowByteSz = windowMsgSz * 10 * 1024
+	}
+
 	sess := &Session{
-		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox),
+		Swp:         NewSWP(net, windowMsgSz, windowByteSz, timeout, localInbox, destInbox),
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		Net:         net,
