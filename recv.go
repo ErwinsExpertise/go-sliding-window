@@ -268,6 +268,13 @@ func (r *RecvState) Start() error {
 	return nil
 }
 
+// UpdateFlowControl updates our flow control
+// parameters r.LastAvailReaderMsgCap and
+// r.LastAvailReaderBytesCap based on the
+// most recently observed Packet deliveried
+// status, and tells the sender about this
+// indirectly with an r.snd.FlowCt.UpdateFlow()
+// update.
 func (r *RecvState) UpdateFlowControl() {
 	begVal := r.LastAvailReaderMsgCap
 
