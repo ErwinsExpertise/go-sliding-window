@@ -66,7 +66,7 @@ type RecvState struct {
 // InOrderSeq represents ordered (and gapless)
 // data as delivered to the consumer application.
 // The appliation requests
-// it by asking on the RecvState.ReadMessagesCh channel.
+// it by asking on the Session.ReadMessagesCh channel.
 type InOrderSeq struct {
 	Seq []*Packet
 }
