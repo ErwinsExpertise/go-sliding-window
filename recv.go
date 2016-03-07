@@ -114,10 +114,10 @@ func (r *RecvState) Start() error {
 			case r.NumHeldMessages <- int64(len(r.RcvdButNotConsumed)):
 
 			case deliverToConsumer <- delivery:
-				p("%v made deliverToConsumer delivery of %v packets starting with %v",
+				q("%v made deliverToConsumer delivery of %v packets starting with %v",
 					r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
 				for _, pack := range delivery.Seq {
-					p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
+					q("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
 						r.Inbox, pack.SeqNum)
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
 					r.LastMsgConsumed = pack.SeqNum
@@ -148,7 +148,7 @@ func (r *RecvState) Start() error {
 					panic("invariant that pack.CumulBytesTransmitted goes in packet SeqNum order failed.")
 				}
 
-				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.UpdateFlowControl()
 				// and tell snd about the new flow-control info
@@ -159,7 +159,7 @@ func (r *RecvState) Start() error {
 					AvailReaderBytesCap: pack.AvailReaderBytesCap,
 					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 				}
-				q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
+				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
 				select {
 				case r.snd.GotAck <- as:
 				case <-r.ReqStop:
@@ -176,7 +176,7 @@ func (r *RecvState) Start() error {
 					// if not old dup, add to hash of to-be-consumed
 					if pack.SeqNum >= r.NextFrameExpected {
 						r.RcvdButNotConsumed[pack.SeqNum] = pack
-						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
+						q("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
 							r.Inbox, pack.SeqNum, r.HeldAsString())
 					}
 

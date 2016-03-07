@@ -146,29 +146,29 @@ func (s *SenderState) Start() {
 			// from the receiver allows it.
 			//
 			bytesInflight, msgInflight := s.ComputeInflight()
-			q("%v bytesInflight = %v", s.Inbox, bytesInflight)
-			q("%v msgInflight = %v", s.Inbox, msgInflight)
+			//q("%v bytesInflight = %v", s.Inbox, bytesInflight)
+			//q("%v msgInflight = %v", s.Inbox, msgInflight)
 
 			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 &&
 				s.LastSeenAvailReaderBytesCap-bytesInflight > 0 {
-				p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
+				q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
 					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 				acceptSend = s.BlockingSend
 			} else {
-				p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
+				q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
 					" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
 					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
 					s.LastSeenAvailReaderBytesCap, bytesInflight)
 			}
 
-			p("%v top of sender select loop", s.Inbox)
+			q("%v top of sender select loop", s.Inbox)
 			select {
 			case <-s.keepAlive:
-				p("%v keepAlive at %v", s.Inbox, time.Now())
+				q("%v keepAlive at %v", s.Inbox, time.Now())
 				s.doKeepAlive()
 
 			case <-regularIntervalWakeup:
-				p("%v regularIntervalWakeup at %v", s.Inbox, time.Now())
+				q("%v regularIntervalWakeup at %v", s.Inbox, time.Now())
 
 				// have any of our packets timed-out and need to be
 				// sent again?
@@ -201,7 +201,7 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
-					p("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
+					q("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
 						s.Inbox, slot.Pack, string(slot.Pack.Data))
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
@@ -212,19 +212,19 @@ func (s *SenderState) Start() {
 				close(s.Done)
 				return
 			case pack := <-acceptSend:
-				p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
+				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
 				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
 				// ack received - do sender side stuff
 				//
-				p("%v sender GotAck a: %#v", s.Inbox, a)
+				q("%v sender GotAck a: %#v", s.Inbox, a)
 				//
 				// flow control: respect a.AvailReaderBytesCap
 				// and a.AvailReaderMsgCap info that we have
 				// received from this ack
 				//
-				p("%v sender GotAck, updating s.LastSeenAvailReaderMsgCap %v -> %v",
+				q("%v sender GotAck, updating s.LastSeenAvailReaderMsgCap %v -> %v",
 					s.Inbox, s.LastSeenAvailReaderMsgCap, a.AvailReaderMsgCap)
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
@@ -240,10 +240,10 @@ func (s *SenderState) Start() {
 				if a.OnlyUpdateFlowCtrl {
 					// it wasn't an Ack, just updated flow info
 					// from a received data message.
-					q("%s sender Gotack: just updated flow control, continuing sendloop", s.Inbox)
+					//q("%s sender Gotack: just updated flow control, continuing sendloop", s.Inbox)
 					continue sendloop
 				}
-				q("%s sender Gotack: more than just flowcontrol...", s.Inbox)
+				//q("%s sender Gotack: more than just flowcontrol...", s.Inbox)
 				delete(s.SentButNotAcked, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
 					//q("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
@@ -251,31 +251,30 @@ func (s *SenderState) Start() {
 					s.DiscardCount++
 					continue sendloop
 				}
-				q("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
+				//q("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
 				for {
 					s.LastAckRec++
 
+					// release the send slot
 					// do this before changing slot, since we point into slot.
 					delete(s.SentButNotAcked, s.LastAckRec)
 
-					slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
-					q("%v ... slot = %#v", s.Inbox, slot)
+					//slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
+					//q("%v ... slot = %#v", s.Inbox, slot)
 
-					// release the send slot
-					//s.slotsAvail++
 					if s.LastAckRec == a.AckNum {
-						q("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
-							s.Inbox, s.LastAckRec, a.AckNum)
+						//q("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
+						//	s.Inbox, s.LastAckRec, a.AckNum)
 						break
 					}
-					q("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
-						s.Inbox, s.LastAckRec, a.AckNum)
+					//q("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
+					//	s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
 				// request to send an ack:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
+				q("%v doing Net.Send() SendAck request on ackPack: '%#v'",
 					s.Inbox, ackPack)
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				panicOn(err)
@@ -298,19 +297,13 @@ func (s *SenderState) Stop() {
 
 // for first time sends of data, not retries or acks.
 func (s *SenderState) doOrigDataSend(pack *Packet) {
-	//s.slotsAvail--
-	//q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
+	//q("%v sender in acceptSend", s.Inbox)
 
 	s.LastFrameSent++
 	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
 	s.TotalBytesSent += int64(len(pack.Data))
 	pack.CumulBytesTransmitted = s.TotalBytesSent
-
-	//p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
-	//	s.LastSeenAvailReaderBytesCap, s.LastSeenAvailReaderBytesCap-1)
-	//	s.LastSeenAvailReaderBytesCap -= int64(len(pack.Data))
-	//	s.LastSeenAvailReaderMsgCap--
 
 	lfs := s.LastFrameSent
 	pos := lfs % s.SenderWindowSize
@@ -331,7 +324,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	s.LastSendTime = now
 
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
-	q("%v doSend(), flow = '%#v'", s.Inbox, flow)
+	//q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doSend() for %v", s.Inbox))
@@ -343,7 +336,7 @@ func (s *SenderState) doKeepAlive() {
 		return
 	}
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1)
-	q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
+	//q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is
 	// *not* an ack, because we need it to be
@@ -358,7 +351,7 @@ func (s *SenderState) doKeepAlive() {
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 	}
-	q("%v doing keepalive Net.Send()", s.Inbox)
+	//q("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	panicOn(err)
 

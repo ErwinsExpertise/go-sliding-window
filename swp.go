@@ -140,7 +140,7 @@ var ErrShutdown = fmt.Errorf("shutting down")
 func (sess *Session) Push(pack *Packet) {
 	select {
 	case sess.Swp.Sender.BlockingSend <- pack:
-		p("%v Push succeeded on payload '%s' into BlockingSend", sess.MyInbox, string(pack.Data))
+		q("%v Push succeeded on payload '%s' into BlockingSend", sess.MyInbox, string(pack.Data))
 		sess.IncrPacketsSentForTransfer(1)
 	case <-sess.Swp.Sender.ReqStop:
 		// give up, Sender is shutting down.

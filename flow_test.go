@@ -194,6 +194,9 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	A.Stop()
 	B.Stop()
 
+	smy := net.Summary()
+	smy.Print()
+
 	// NOT DONE, WORK IN PROGRESS
 	cv.Convey("Given a faster sender A and a slower receiver B, flow-control in the SWP should throttle back the sender so it doesn't overwhelm the downstream receiver's buffers", t, func() {
 		//cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)

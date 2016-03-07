@@ -171,7 +171,7 @@ func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Durat
 	//	sim.preCheckFlowControlNotViolated(pack)
 
 	ch <- pack
-	p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+	q("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
 
 	//	sim.postCheckFlowControlNotViolated(pack)
 
@@ -210,7 +210,7 @@ func (sim *SimNet) preCheckFlowControlNotViolated(pack *Packet) {
 	// update
 	// any kind of packet:
 	sim.Advertised[pack.From] = pack.AvailReaderMsgCap
-	p("sim: latest advertised from '%s' is pack.AvailReaderMsgCap: %v", pack.From, pack.AvailReaderMsgCap)
+	q("sim: latest advertised from '%s' is pack.AvailReaderMsgCap: %v", pack.From, pack.AvailReaderMsgCap)
 
 	sim.mapMut.Unlock()
 }
@@ -271,10 +271,10 @@ func (net *SimNet) Summary() *Sum {
 }
 
 func (s *Sum) Print() {
-	p("summary: packets A sent %v   -> B packets rcvd %v  [kept %.03f%%, lost %.03f%%]",
-		s.tsa, s.trb, s.ObsKeepRateFromA, 1.0-s.ObsKeepRateFromA)
-	p("summary: packets B sent %v   -> A packets rcvd %v  [kept %.03f%%, lost %.03f%%]",
-		s.tsb, s.tra, s.ObsKeepRateFromB, 1.0-s.ObsKeepRateFromB)
+	fmt.Printf("\n summary: packets A sent %v   -> B packets rcvd %v  [kept %.01f%%, lost %.01f%%]\n",
+		s.tsa, s.trb, 100.0*s.ObsKeepRateFromA, 100.0*(1.0-s.ObsKeepRateFromA))
+	fmt.Printf("\n summary: packets B sent %v   -> A packets rcvd %v  [kept %.01f%%, lost %.01f%%]\n",
+		s.tsb, s.tra, 100.0*s.ObsKeepRateFromB, 100.0*(1.0-s.ObsKeepRateFromB))
 }
 
 // HistoryEqual lets one easily compare and send and a recv history
@@ -286,7 +286,7 @@ func HistoryEqual(a, b []*Packet) bool {
 	}
 	for i := 0; i < na; i++ {
 		if a[i].SeqNum != b[i].SeqNum {
-			p("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
+			q("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
 				i, a[i].SeqNum, b[i].SeqNum)
 			return false
 		}
