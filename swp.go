@@ -234,6 +234,17 @@ func (s *Session) SelfConsumeForTesting() {
 	}()
 }
 
+// IncrementClockOnReceiveForTesting supports testing by
+// incrementing the Clock automatically when a packet is
+// received. Expects a SimClock to be in use, and so
+// to avoid mixing testing and prod this call will panic
+// if that assumption in violated.
+func (s *Session) IncrementClockOnReceiveForTesting() {
+	s.Swp.Recver.Clk.(*SimClock).Advance(0)
+	s.Swp.Recver.testModeOn()
+	s.Swp.Recver.testing.incrementClockOnReceive = true
+}
+
 // InWindow returns true iff seqno is in [min, max].
 func InWindow(seqno, min, max int64) bool {
 	if seqno < min {
@@ -299,4 +310,14 @@ func (s *Session) IncrPacketsSentForTransfer(n int64) int64 {
 func (s *Session) RegisterAsap(rcvUnordered chan *Packet) error {
 	s.Swp.Recver.setAsapHelper <- NewAsapHelper(rcvUnordered)
 	return nil
+}
+
+// ackCallbackFunc is used for testing: used in setPacketRecvCallback
+type ackCallbackFunc func(pack *Packet)
+
+// for testing, get a callback when packets are received.
+// test-mode must have already been activated by a call
+// to s.Swp.recver.testModeOn(), or we will panic.
+func (s *Session) setPacketRecvCallback(cb ackCallbackFunc) {
+	s.Swp.Recver.testing.ackCb = cb
 }

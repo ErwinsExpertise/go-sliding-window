@@ -15,7 +15,8 @@ type TxqSlot struct {
 
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
-	OnlyUpdateFlowCtrl  bool // don't send ack, just update flow info.
+	AckOnly             bool
+	KeepAlive           bool
 	AckNum              int64
 	AckRetry            int64
 	AckCameWithPacket   int64
@@ -255,7 +256,7 @@ func (s *SenderState) Start() {
 					}
 				}
 
-				if a.OnlyUpdateFlowCtrl {
+				if !a.AckOnly {
 					// it wasn't an Ack, just updated flow info
 					// from a received data message.
 					//q("%s sender Gotack: just updated flow control, continuing sendloop", s.Inbox)
@@ -346,6 +347,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	//q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
+	pack.DataSendTm = now
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doSend() for %v", s.Inbox))
 	panicOn(err)
 }

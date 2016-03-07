@@ -31,6 +31,13 @@ func (c *SimClock) Advance(d time.Duration) time.Time {
 	return c.When
 }
 
+// Set sets the SimClock time to w, and w will
+// be returned by Now() until another Set or Advance
+// call is made.
+func (c *SimClock) Set(w time.Time) {
+	c.When = w
+}
+
 // RealClock just passes the Now() call to time.Now().
 type RealClock struct{}
 

@@ -68,6 +68,7 @@ type RecvState struct {
 	AsapOn        bool
 	asapHelper    *AsapHelper
 	setAsapHelper chan *AsapHelper
+	testing       *testCfg
 }
 
 // InOrderSeq represents ordered (and gapless)
@@ -168,6 +169,15 @@ func (r *RecvState) Start() error {
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
+				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
+
+				// test instrumentation, used e.g. in clock_test.go
+				if r.testing != nil && r.testing.incrementClockOnReceive {
+					r.Clk.(*SimClock).Advance(time.Second)
+					if r.testing.ackCb != nil {
+						r.testing.ackCb(pack)
+					}
+				}
 
 				// tell any ASAP clients about it
 				if r.AsapOn && r.asapHelper != nil {
@@ -192,12 +202,12 @@ func (r *RecvState) Start() error {
 					panic("invariant that pack.CumulBytesTransmitted goes in packet SeqNum order failed.")
 				}
 
-				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.UpdateFlowControl(pack)
 				// and tell snd about the new flow-control info
 				as := AckStatus{
-					OnlyUpdateFlowCtrl:  !pack.AckOnly,
+					AckOnly:             pack.AckOnly,
+					KeepAlive:           pack.KeepAlive,
 					AckNum:              pack.AckNum,
 					AckRetry:            pack.AckRetry,
 					AckCameWithPacket:   pack.SeqNum,
@@ -350,4 +360,21 @@ func (r *RecvState) cleanupOnExit() {
 	if r.asapHelper != nil {
 		r.asapHelper.Stop()
 	}
+}
+
+// testModeOn idempotently turns
+// on the testing mode. The testing
+// mode can be checked at any point by testing if
+// r.testing is non-nil.
+func (r *RecvState) testModeOn() {
+	if r.testing == nil {
+		r.testing = &testCfg{}
+	}
+}
+
+// testCfg is used for testing/advancing
+// the SimClock automatically
+type testCfg struct {
+	ackCb                   ackCallbackFunc
+	incrementClockOnReceive bool
 }

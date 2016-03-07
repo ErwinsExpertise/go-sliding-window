@@ -70,7 +70,7 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 // annoation is optional and allows the logs to illumate
 // the purpose of each send (ack, keepAlive, data, etc).
 func (sim *SimNet) Send(pack *Packet, why string) error {
-	//q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
+	q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
 
 	sim.mapMut.Lock()
 	sim.TotalSent[pack.From]++
