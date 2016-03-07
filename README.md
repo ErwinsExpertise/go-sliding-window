@@ -69,7 +69,7 @@ The library was test-driven and features a network simulator that simulates pack
 
 ### todo
 
-Optimal bandwidth allocation (when to timeout and retry) requires good estimates of the actual round-trip time between endpoints A and B in a Session, which may not be known in advance and may evolve over time. Currently this is just a user supplied parameter when creating a Session, and no exponential back-off is used. Nats runs over TCP anyway, so this may or may not be important to implement in `swp`. To make a session more convenient to configure however, we do plan to implement [Jacobson/Karels algorithm for RTT estimation](https://en.wikipedia.org/wiki/TCP_congestion-avoidance_algorithm) in the near future (p304 of Peterson and Davie).
+Optimal bandwidth allocation (when to timeout and retry) requires good estimates of the actual round-trip time between endpoints A and B in a Session, which may not be known in advance and may evolve over time. Currently this is just a user supplied parameter when creating a Session, and no exponential back-off is used. To make a session more convenient to configure however, we do plan to implement the [Jacobson/Karels algorithm for RTT estimation](https://en.wikipedia.org/wiki/TCP_congestion-avoidance_algorithm) in the near future (p304 of Peterson and Davie).
 
 ### credits
 
