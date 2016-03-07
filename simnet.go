@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// SimNet simulates a network with the given latency and loss characteristics.
+// SimNet simulates a network with the given latency and
+// loss characteristics. See NewSimNet.
 type SimNet struct {
 	Net      map[string]chan *Packet
 	LossProb float64
@@ -51,9 +52,8 @@ func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 		TotalRcvd:   make(map[string]int64),
 		Advertised:  make(map[string]int64),
 		Inflight:    make(map[string]int64),
-		//LinearizeReceives: make(chan Linear),
-		ReqStop: make(chan bool),
-		Done:    make(chan bool),
+		ReqStop:     make(chan bool),
+		Done:        make(chan bool),
 	}
 	return s
 }
@@ -142,6 +142,7 @@ func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Durat
 	sim.mapMut.Unlock()
 }
 
+/*
 // helper for sendWithLatency, after send, before receive
 func (sim *SimNet) preCheckFlowControlNotViolated(pack *Packet) {
 	// check for advertising of flow parameters, and that data sends don't
@@ -192,7 +193,10 @@ func (sim *SimNet) postCheckFlowControlNotViolated(pack *Packet) {
 	}
 	sim.mapMut.Unlock()
 }
+*/
 
+// resolution controls the floating point
+// resolution in the cryptoProb routine.
 const resolution = 1 << 20
 
 // cryptoProb returns a random number between
