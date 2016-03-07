@@ -41,6 +41,13 @@ type Packet struct {
 	AvailReaderBytesCap int64
 	AvailReaderMsgCap   int64
 
+	// on data payloads, allows the receiver to figure out how
+	// big any gaps are, so as to give accurate flow control
+	// byte count info. Including this packet's len(Data),
+	// CumulBytesTransmitted should give the total accumulated
+	// count of bytes ever transmitted on this session.
+	CumulBytesTransmitted int64
+
 	Data []byte
 }
 

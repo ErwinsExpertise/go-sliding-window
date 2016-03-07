@@ -64,7 +64,8 @@ type SenderState struct {
 
 	// do synchronized access via GetFlow()
 	// and UpdateFlow(s.Net)
-	FlowCt FlowCtrl
+	FlowCt         FlowCtrl
+	TotalBytesSent int64
 }
 
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
@@ -303,6 +304,9 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 
 	s.LastFrameSent++
 	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
+
+	s.TotalBytesSent += len(pack.Data)
+	pack.CumulBytesTransmitted = s.TotalBytesSent
 
 	//p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
 	//	s.LastSeenAvailReaderBytesCap, s.LastSeenAvailReaderBytesCap-1)
