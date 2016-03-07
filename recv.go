@@ -96,6 +96,8 @@ func (r *RecvState) Start() error {
 
 			select {
 			case deliverToConsumer <- delivery:
+				p("%v made deliverToConsumer delivery of %v packets starting with %v",
+					r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
 				for _, pack := range delivery.Seq {
 					p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
 						r.Inbox, pack.SeqNum)
