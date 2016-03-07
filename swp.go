@@ -61,11 +61,11 @@ import (
 //msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet
 
 // Packet is what is transmitted between Sender A and
-// Recver B, where A and B are the two endpoints in a
+// Receiver B, where A and B are the two endpoints in a
 // given Session. (Endpoints are specified by the strings localInbox and
 // destInbox in the NewSession constructor.)
 //
-// Packets also flow symmetrically from Sender B to Recver A.
+// Packets also flow symmetrically from Sender B to Receiver A.
 //
 // Special packets are AckOnly and KeepAlive
 // flagged; otherwise normal packets are data
