@@ -43,10 +43,10 @@ type RecvState struct {
 	NumHeldMessages  chan int64
 }
 
-// InOrderSeq represents ordered data as delivered
-// to the consumer who requests it by asking on
-// the ConsumePacketsCh.
-//
+// InOrderSeq represents ordered (and gapless)
+// data as delivered to the consumer application.
+// The appliation requests
+// it by asking on the RecvState.ReadMessagesCh channel.
 type InOrderSeq struct {
 	Seq []*Packet
 }
