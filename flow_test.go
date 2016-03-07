@@ -71,9 +71,9 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	rtt := 1000 * lat
 
-	A, err := NewSession(anet, "A", "B", 3, rtt, nil)
+	A, err := NewSession(anet, "A", "B", 3, rtt)
 	panicOn(err)
-	B, err := NewSession(bnet, "B", "A", 3, rtt, nil)
+	B, err := NewSession(bnet, "B", "A", 3, rtt)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
@@ -147,9 +147,9 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 1000 * lat
 
-	A, err := NewSession(net, "A", "B", 3, rtt, nil)
+	A, err := NewSession(net, "A", "B", 3, rtt)
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, rtt, nil)
+	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
 	B.Swp.Sender.LastFrameSent = 999
 

@@ -64,13 +64,12 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowSize int64,
-	timeout time.Duration, inbox string, destInbox string,
-	consumer ConsumerFunc) *SWP {
+	timeout time.Duration, inbox string, destInbox string) *SWP {
 
 	recvSz := windowSize
 	sendSz := windowSize
 	snd := NewSenderState(net, sendSz, timeout, inbox, destInbox)
-	rcv := NewRecvState(net, recvSz, timeout, inbox, snd, consumer)
+	rcv := NewRecvState(net, recvSz, timeout, inbox, snd)
 	swp := &SWP{
 		Sender: snd,
 		Recver: rcv,
@@ -86,7 +85,8 @@ type Session struct {
 	Destination string
 	MyInbox     string
 
-	Net Network
+	Net            Network
+	ReadMessagesCh chan InOrderSeq
 }
 
 // NewSession makes a new Session, and calls
@@ -95,16 +95,16 @@ func NewSession(net Network,
 	localInbox string,
 	destInbox string,
 	windowSz int64,
-	timeout time.Duration,
-	consumer ConsumerFunc) (*Session, error) {
+	timeout time.Duration) (*Session, error) {
 
 	sess := &Session{
-		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox, consumer),
+		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox),
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		Net:         net,
 	}
 	sess.Swp.Start()
+	sess.ReadMessagesCh = sess.Swp.Recver.ReadMessagesCh
 
 	return sess, nil
 }

@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-type ConsumerFunc func(readme []*Packet)
-
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
 	Net               Network
@@ -35,26 +33,35 @@ type RecvState struct {
 	// (currently we assume everything received has been consumed).
 	RcvdButNotConsumed map[Seqno]*Packet
 
-	CallbackToBlockingConsumer ConsumerFunc
+	ReadyForDelivery []*Packet
+	ReadMessagesCh   chan InOrderSeq
+}
+
+// InOrderSeq represents ordered data as delivered
+// to the consumer who requests it by asking on
+// the ConsumePacketsCh.
+type InOrderSeq struct {
+	Seq []*Packet
 }
 
 // NewRecvState makes a new RecvState manager.
 func NewRecvState(net Network, recvSz int64, timeout time.Duration,
-	inbox string, snd *SenderState, consumer ConsumerFunc) *RecvState {
+	inbox string, snd *SenderState) *RecvState {
 
 	r := &RecvState{
-		Net:                        net,
-		Inbox:                      inbox,
-		RecvWindowSize:             Seqno(recvSz),
-		Rxq:                        make([]*RxqSlot, recvSz),
-		Timeout:                    timeout,
-		RecvHistory:                make([]*Packet, 0),
-		ReqStop:                    make(chan bool),
-		Done:                       make(chan bool),
-		RecvSz:                     recvSz,
-		snd:                        snd,
-		RcvdButNotConsumed:         make(map[Seqno]*Packet),
-		CallbackToBlockingConsumer: consumer,
+		Net:                net,
+		Inbox:              inbox,
+		RecvWindowSize:     Seqno(recvSz),
+		Rxq:                make([]*RxqSlot, recvSz),
+		Timeout:            timeout,
+		RecvHistory:        make([]*Packet, 0),
+		ReqStop:            make(chan bool),
+		Done:               make(chan bool),
+		RecvSz:             recvSz,
+		snd:                snd,
+		RcvdButNotConsumed: make(map[Seqno]*Packet),
+		ReadyForDelivery:   make([]*Packet, 0),
+		ReadMessagesCh:     make(chan InOrderSeq),
 	}
 	for i := range r.Rxq {
 		r.Rxq[i] = &RxqSlot{}
@@ -71,13 +78,30 @@ func (r *RecvState) Start() error {
 	}
 	r.MsgRecv = mr
 
+	var deliverToConsumer chan InOrderSeq
+	var delivery InOrderSeq
+
 	go func() {
+
 	recvloop:
 		for {
 			//q("%v top of recvloop, receiver NFE: %v",
 			// r.Inbox, r.NextFrameExpected)
 
+			deliverToConsumer = nil
+			if len(r.ReadyForDelivery) > 0 {
+				delivery.Seq = r.ReadyForDelivery
+				deliverToConsumer = r.ReadMessagesCh
+			}
+
 			select {
+			case deliverToConsumer <- delivery:
+				for _, pack := range delivery.Seq {
+					p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
+						r.Inbox, pack.SeqNum)
+					delete(r.RcvdButNotConsumed, pack.SeqNum)
+				}
+				r.ReadyForDelivery = r.ReadyForDelivery[:0]
 			case <-r.ReqStop:
 				//q("%v recvloop sees ReqStop, shutting down.", r.Inbox)
 				close(r.Done)
@@ -149,13 +173,12 @@ func (r *RecvState) Start() error {
 
 						//q("%v packet.SeqNum %v matches r.NextFrameExpected",
 						//	r.Inbox, pack.SeqNum)
-						var readyForDelivery []*Packet
 						for slot.Received {
 
 							//q("%v actual in-order receive happening for SeqNum %v",
 							//	r.Inbox, slot.Pack.SeqNum)
 
-							readyForDelivery = append(readyForDelivery, slot.Pack)
+							r.ReadyForDelivery = append(r.ReadyForDelivery, slot.Pack)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
 							//q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
@@ -163,15 +186,6 @@ func (r *RecvState) Start() error {
 							slot.Pack = nil
 							r.NextFrameExpected++
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
-						}
-						if r.CallbackToBlockingConsumer != nil {
-							// block here until consumer has read packet
-							r.CallbackToBlockingConsumer(readyForDelivery)
-						}
-						for _, pack := range readyForDelivery {
-							p("%v after deliver, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
-								r.Inbox, pack.SeqNum)
-							delete(r.RcvdButNotConsumed, pack.SeqNum)
 						}
 						r.ack(r.NextFrameExpected-1, pack.From)
 					} else {
