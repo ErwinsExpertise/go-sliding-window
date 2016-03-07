@@ -27,7 +27,7 @@ type Seqno int64
 // Packet is what is transmitted between Sender A and
 // Recver B, where A and B are the two endpoints in a
 // given Session. (Endpoints are specified by the strings localInbox and
-// destInbox in the in the NewSession constructor.)
+// destInbox in the NewSession constructor.)
 //
 // Packets also flow symmetrically from Sender B to Recver A.
 //
