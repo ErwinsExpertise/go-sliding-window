@@ -25,6 +25,13 @@ Session between two nats clients. It provides flow
 control between exactly two nats endpoints; in many
 cases this is sufficient to allow all subscribers to
 keep up.
+
+There is also a Session.RegisterAsap() API that can be
+used to obtain the same possibly-out-of-order but as-soon-as-possible
+delivery that nats give you natively, while retaining the
+flow control required to produce a lossless and ordered
+delivery stream at the same time. This can be used in
+tandem with the main always-ordered API if so desired.
 */
 package swp
 
@@ -255,4 +262,20 @@ func (sess *Session) CountPacketsSentForTransfer() int64 {
 // IncrPacketsSentForTransfer increment packetsConsumed and return the new total.
 func (sess *Session) IncrPacketsSentForTransfer(n int64) int64 {
 	return int64(atomic.AddUint64(&sess.packetsSent, uint64(n)))
+}
+
+// RegisterAsap registers a call back channel,
+// rcvUnordered, which will get *Packet that are
+// unordered and possibly
+// have gaps in their sequence (where packets
+// where dropped). However the channel will see
+// the packets as soon as possible. The session
+// will still be flow controlled however, so
+// if the receiver throttles the sender, packets
+// may be delayed. Clients should be prepared
+// to deal with duplicated, dropped, and mis-ordered packets
+// on the rcvUnordered channel.
+func (s *Session) RegisterAsap(rcvUnordered chan *Packet) error {
+	s.Swp.Recver.setAsapHelper <- NewAsapHelper(rcvUnordered)
+	return nil
 }

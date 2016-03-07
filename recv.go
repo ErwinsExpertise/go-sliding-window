@@ -38,19 +38,29 @@ type RecvState struct {
 
 	RcvdButNotConsumed map[Seqno]*Packet
 
-	ReadyForDelivery          []*Packet
-	ReadMessagesCh            chan InOrderSeq
-	ReadMessageOutOfOrderASAP chan *Packet
-	NumHeldMessages           chan int64
+	ReadyForDelivery []*Packet
+	ReadMessagesCh   chan InOrderSeq
+	NumHeldMessages  chan int64
 
-	// if AsapHelper is non-nil the recevier will
-	// send any packets to the AsapHelper
-	// for delivery to clients as soon as they arrive
+	// If AsapOn is true the recevier will
+	// forward packets for delivery to a
+	// client as soon as they arrive
 	// but without ordering guarantees;
 	// and we may also drop packets if
 	// the receive doesn't happen within
 	// 100 msec.
-	AsapHelper *AsapHelper
+	//
+	// The client must have previously called
+	// Session.RegisterAsap and provided a
+	// channel to receive *Packet on.
+	//
+	// As-soon-as-possible delivery has no
+	// effect on the flow-control properties
+	// of the session, nor on the delivery
+	// to the one-time/order-preserved clients.
+	AsapOn        bool
+	asapHelper    *AsapHelper
+	setAsapHelper chan *AsapHelper
 }
 
 // InOrderSeq represents ordered (and gapless)
@@ -66,26 +76,26 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 	inbox string, snd *SenderState) *RecvState {
 
 	r := &RecvState{
-		Net:                       net,
-		Inbox:                     inbox,
-		RecvWindowSize:            Seqno(recvSz),
-		RecvWindowSizeBytes:       recvSzBytes,
-		Rxq:                       make([]*RxqSlot, recvSz),
-		Timeout:                   timeout,
-		RecvHistory:               make([]*Packet, 0),
-		ReqStop:                   make(chan bool),
-		Done:                      make(chan bool),
-		RecvSz:                    recvSz,
-		snd:                       snd,
-		RcvdButNotConsumed:        make(map[Seqno]*Packet),
-		ReadyForDelivery:          make([]*Packet, 0),
-		ReadMessagesCh:            make(chan InOrderSeq),
-		LastMsgConsumed:           -1,
-		LargestSeqnoRcvd:          -1,
-		MaxCumulBytesTrans:        0,
-		LastByteConsumed:          -1,
-		NumHeldMessages:           make(chan int64),
-		ReadMessageOutOfOrderASAP: make(chan *Packet),
+		Net:                 net,
+		Inbox:               inbox,
+		RecvWindowSize:      Seqno(recvSz),
+		RecvWindowSizeBytes: recvSzBytes,
+		Rxq:                 make([]*RxqSlot, recvSz),
+		Timeout:             timeout,
+		RecvHistory:         make([]*Packet, 0),
+		ReqStop:             make(chan bool),
+		Done:                make(chan bool),
+		RecvSz:              recvSz,
+		snd:                 snd,
+		RcvdButNotConsumed:  make(map[Seqno]*Packet),
+		ReadyForDelivery:    make([]*Packet, 0),
+		ReadMessagesCh:      make(chan InOrderSeq),
+		LastMsgConsumed:     -1,
+		LargestSeqnoRcvd:    -1,
+		MaxCumulBytesTrans:  0,
+		LastByteConsumed:    -1,
+		NumHeldMessages:     make(chan int64),
+		setAsapHelper:       make(chan *AsapHelper),
 	}
 
 	for i := range r.Rxq {
@@ -108,6 +118,7 @@ func (r *RecvState) Start() error {
 	var delivery InOrderSeq
 
 	go func() {
+		defer r.cleanupOnExit()
 
 	recvloop:
 		for {
@@ -121,6 +132,16 @@ func (r *RecvState) Start() error {
 			}
 
 			select {
+			case helper := <-r.setAsapHelper:
+				// stop any old helper
+				if r.asapHelper != nil {
+					r.asapHelper.Stop()
+				}
+				r.asapHelper = helper
+				if helper != nil {
+					r.AsapOn = true
+				}
+
 			case r.NumHeldMessages <- int64(len(r.RcvdButNotConsumed)):
 
 			case deliverToConsumer <- delivery:
@@ -141,9 +162,9 @@ func (r *RecvState) Start() error {
 			case pack := <-r.MsgRecv:
 
 				// tell any ASAP clients about it
-				if r.AsapHelper != nil {
+				if r.AsapOn && r.asapHelper != nil {
 					select {
-					case r.AsapHelper.enqueue <- pack:
+					case r.asapHelper.enqueue <- pack:
 					case <-time.After(300 * time.Millisecond):
 						// drop packet
 					case <-r.ReqStop:
@@ -300,4 +321,10 @@ func (r *RecvState) HeldAsString() string {
 		s += fmt.Sprintf("%v, ", sn)
 	}
 	return s
+}
+
+func (r *RecvState) cleanupOnExit() {
+	if r.asapHelper != nil {
+		r.asapHelper.Stop()
+	}
 }
