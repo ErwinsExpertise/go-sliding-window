@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// SimNet simulates a network with a given latency and loss characteristics.
+// SimNet simulates a network with the given latency and loss characteristics.
 type SimNet struct {
 	Net      map[string]chan *Packet
 	LossProb float64
