@@ -29,13 +29,13 @@ performance, establish the rate-controlling
 `swp` Session between your producer and your
 slowest consumer.
 
-
 There is also a Session.RegisterAsap() API that can be
-used to obtain the same possibly-out-of-order but as-soon-as-possible
-delivery that nats give you natively, while retaining the
-flow control required to produce a lossless and ordered
-delivery stream at the same time. This can be used in
-tandem with the main always-ordered API if so desired.
+used to obtain possibly-out-of-order and possibly-duplicated
+but as-soon-as-possible delivery (similar to that which
+nats give you natively), while retaining the
+flow-control required to avoid client-buffer overrun.
+This can be used in tandem with the main always-ordered-and-lossless
+API if so desired.
 */
 package swp
 
