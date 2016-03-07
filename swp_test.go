@@ -99,6 +99,9 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, rtt)
 	panicOn(err)
+	// if LastSeenAvailReaderMsgCap is 1, then we never get
+	// to send re-ordered 2nd packet, so make it at least 2.
+	A.Swp.Sender.LastSeenAvailReaderMsgCap = 2
 
 	p1 := &Packet{
 		From: "A",

@@ -35,11 +35,11 @@ type SenderState struct {
 	BlockingSend chan *Packet
 	GotAck       chan AckStatus
 
-	ReqStop      chan bool
-	Done         chan bool
-	SendHistory  []*Packet
-	SendSz       int64
-	slotsAvail   int64
+	ReqStop     chan bool
+	Done        chan bool
+	SendHistory []*Packet
+	SendSz      int64
+	//	slotsAvail   int64
 	SendAck      chan *Packet
 	DiscardCount int64
 
@@ -96,13 +96,22 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		}},
 		// don't start fast, as we could overwhelm
 		// the receiver. Instead start very slowly,
-		// allowing 1 message.
-		// It will get updated after the first ack.
-		LastSeenAvailReaderMsgCap:   0,
+		// allowing 2 messages so our 003 reorder test runs.
+		// It will get updated after the first ack
+		// or keep alive.
+		LastSeenAvailReaderMsgCap:   2,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
 	}
 
 	return s
+}
+
+func (s *SenderState) ComputeInflight() (bytesInflight int64, msgInflight int64) {
+	for _, slot := range s.SentButNotAcked {
+		msgInflight++
+		bytesInflight += int64(len(slot.Pack.Data))
+	}
+	return
 }
 
 // Start initiates the SenderState goroutine, which manages
@@ -110,7 +119,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 func (s *SenderState) Start() {
 
 	go func() {
-		s.slotsAvail = s.SendSz
+		//s.slotsAvail = s.SendSz
 
 		var acceptSend chan *Packet
 
@@ -132,18 +141,21 @@ func (s *SenderState) Start() {
 			// do a conditional receive. Start by
 			// assuming no:
 			acceptSend = nil
-			// then check
-			if s.slotsAvail > 0 {
-				// maybe, if flow control info
-				// from the receiver agrees
-				if s.LastSeenAvailReaderMsgCap > 0 {
-					p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
-					acceptSend = s.BlockingSend
-				} else {
-					p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v.", s.Inbox, s.LastSeenAvailReaderMsgCap)
-				}
+
+			// then check if we can set acceptSend.
+			//
+			// We accept a packet for sending if flow control info
+			// from the receiver allows it.
+			//
+			bytesInflight, msgInflight := s.ComputeInflight()
+			p("%v bytesInflight = %v", s.Inbox, bytesInflight)
+
+			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 {
+				p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
+					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
+				acceptSend = s.BlockingSend
 			} else {
-				p("%v slot-limit kicked in: not sending. s.LastSeenAvailReaderMsgCap: %v", s.Inbox, s.LastSeenAvailReaderMsgCap)
+				p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v <= msgInflight %v", s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 			}
 
 			p("%v top of sender select loop", s.Inbox)
@@ -186,7 +198,8 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
-					q("%v doing retry Net.Send()", s.Inbox)
+					p("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
+						s.Inbox, slot.Pack, string(slot.Pack.Data))
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
@@ -200,8 +213,9 @@ func (s *SenderState) Start() {
 				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
-				p("%v sender GotAck a: %#v", s.Inbox, a)
 				// ack received - do sender side stuff
+				//
+				p("%v sender GotAck a: %#v", s.Inbox, a)
 				//
 				// flow control: respect a.AvailReaderBytesCap
 				// and a.AvailReaderMsgCap info that we have
@@ -211,6 +225,15 @@ func (s *SenderState) Start() {
 					s.Inbox, s.LastSeenAvailReaderMsgCap, a.AvailReaderMsgCap)
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
+
+				// need to update our map of SentButNotAcked
+				// and remove everything before AckNum, which is cumulative.
+				for _, slot := range s.SentButNotAcked {
+					if slot.Pack.SeqNum <= a.AckNum {
+						delete(s.SentButNotAcked, a.AckNum)
+					}
+				}
+
 				if a.OnlyUpdateFlowCtrl {
 					// it wasn't an Ack, just updated flow info
 					// from a received data message.
@@ -236,7 +259,7 @@ func (s *SenderState) Start() {
 					q("%v ... slot = %#v", s.Inbox, slot)
 
 					// release the send slot
-					s.slotsAvail++
+					//s.slotsAvail++
 					if s.LastAckRec == a.AckNum {
 						q("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
 							s.Inbox, s.LastAckRec, a.AckNum)
@@ -246,6 +269,7 @@ func (s *SenderState) Start() {
 						s.Inbox, s.LastAckRec, a.AckNum)
 				}
 			case ackPack := <-s.SendAck:
+				// request to send an ack:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
 				p("%v doing Net.Send() SendAck request on ackPack: '%#v'",
@@ -271,16 +295,16 @@ func (s *SenderState) Stop() {
 
 // for first time sends of data, not retries or acks.
 func (s *SenderState) doOrigDataSend(pack *Packet) {
-	s.slotsAvail--
+	//s.slotsAvail--
 	//q("%v sender in acceptSend, now %v slotsAvail", s.Inbox, s.slotsAvail)
 
 	s.LastFrameSent++
 	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
-	p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
-		s.LastSeenAvailReaderBytesCap, s.LastSeenAvailReaderBytesCap-1)
-	s.LastSeenAvailReaderBytesCap -= int64(len(pack.Data))
-	s.LastSeenAvailReaderMsgCap--
+	//p("%v SenderState.doOrigDataSend is decrementing LastSeenAvailReaderBytesCap %v -> %v",
+	//	s.LastSeenAvailReaderBytesCap, s.LastSeenAvailReaderBytesCap-1)
+	//	s.LastSeenAvailReaderBytesCap -= int64(len(pack.Data))
+	//	s.LastSeenAvailReaderMsgCap--
 
 	lfs := s.LastFrameSent
 	pos := lfs % s.SenderWindowSize

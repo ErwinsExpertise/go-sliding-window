@@ -28,6 +28,10 @@ type RecvState struct {
 
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
+
+	// todo: implement back pressure using this:
+	// (currently we assume everything received has been consumed).
+	ReceivedButNotConsumed map[Seqno]*RxqSlot
 }
 
 // NewRecvState makes a new RecvState manager.
@@ -43,6 +47,7 @@ func NewRecvState(net Network, recvSz int64, timeout time.Duration, inbox string
 		Done:           make(chan bool),
 		RecvSz:         recvSz,
 		snd:            snd,
+		ReceivedButNotConsumed: make(map[Seqno]*RxqSlot),
 	}
 }
 
@@ -156,7 +161,8 @@ func (r *RecvState) UpdateFlowControl() {
 		r.Inbox, begVal, r.LastAvailReaderMsgCap)
 }
 
-// ack is a helper function, used in the recvloop above
+// ack is a helper function, used in the recvloop above.
+// Currently seqno is always r.NextFrameExpected-1
 func (r *RecvState) ack(seqno Seqno, dest string) {
 	r.UpdateFlowControl()
 	//q("%v about to send ack with AckNum: %v to %v",

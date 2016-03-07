@@ -20,7 +20,7 @@ type Flow struct {
 	// flow control params
 	// current: use these to advertise; kept
 	// up to date as conditions change.
-	// These already have Reserved capcity
+	// These already have Reserved capcities above
 	// subtracted from them, so they are
 	// safe to ack to sender.
 	AvailReaderBytesCap int64

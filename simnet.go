@@ -27,6 +27,25 @@ type SimNet struct {
 
 	// simulate duplicating the next packet
 	DuplicateNext bool
+
+	// enforce that advertised windows are never
+	// violated by having more messages in flight
+	// than have been advertised.
+	Advertised map[string]int64
+	Inflight   map[string]int64
+
+	// receive linearization, so we can
+	// properly check the accounting of the
+	// flow control
+	LinearizeReceives chan Linear
+
+	ReqStop chan bool
+	Done    chan bool
+}
+
+type Linear struct {
+	Pack   *Packet
+	DestCh chan *Packet
 }
 
 // BufferCaps returns the byte and message limits
@@ -34,21 +53,48 @@ type SimNet struct {
 // can be used to avoid sender overrunning them.
 func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
 	// limits so high they shouldn't be restrictive
-	return 1024 * 1024 * 1024, 1024
+	return 5000, 1
 }
 
 // NewSimNet makes a network simulator. The
 // latency is one-way trip time; lossProb is the probability of
 // the packet getting lost on the network.
 func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
-	return &SimNet{
-		Net:         make(map[string]chan *Packet),
-		LossProb:    lossProb,
-		Latency:     latency,
-		DiscardOnce: -1,
-		TotalSent:   make(map[string]int64),
-		TotalRcvd:   make(map[string]int64),
+	s := &SimNet{
+		Net:               make(map[string]chan *Packet),
+		LossProb:          lossProb,
+		Latency:           latency,
+		DiscardOnce:       -1,
+		TotalSent:         make(map[string]int64),
+		TotalRcvd:         make(map[string]int64),
+		Advertised:        make(map[string]int64),
+		Inflight:          make(map[string]int64),
+		LinearizeReceives: make(chan Linear),
+		ReqStop:           make(chan bool),
+		Done:              make(chan bool),
 	}
+	s.StartLinearizer()
+	return s
+}
+
+// deliver packets in a linearized order,
+// serialized throught the single s.LinearizeReceives channel,
+// so flow control can be verified.
+func (sim *SimNet) StartLinearizer() {
+	go func() {
+		for {
+			select {
+			case lin := <-sim.LinearizeReceives:
+				select {
+				case lin.DestCh <- lin.Pack:
+				case <-sim.ReqStop:
+					return
+				}
+			case <-sim.ReqStop:
+				return
+			}
+		}
+	}()
 }
 
 func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
@@ -62,7 +108,7 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 
 	sim.mapMut.Lock()
 	sim.TotalSent[pack.From]++
-	sim.mapMut.Unlock()
+	defer sim.mapMut.Unlock()
 
 	ch, ok := sim.Net[pack.Dest]
 	if !ok {
@@ -112,15 +158,72 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 	return nil
 }
 
+// helper for Send
 func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Duration) {
 	<-time.After(lat)
 	//q("sim: packet %v, after latency %v, ready to deliver to node %v, trying...",
 	//	pack.SeqNum, lat, pack.Dest)
+
+	//	sim.preCheckFlowControlNotViolated(pack)
+
 	ch <- pack
-	//p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+	p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+
+	//	sim.postCheckFlowControlNotViolated(pack)
 
 	sim.mapMut.Lock()
 	sim.TotalRcvd[pack.Dest]++
+	sim.mapMut.Unlock()
+}
+
+// helper for sendWithLatency, after send, before receive
+func (sim *SimNet) preCheckFlowControlNotViolated(pack *Packet) {
+	// check for advertising of flow parameters, and that data sends don't
+	// exceed the advertised
+	sim.mapMut.Lock()
+
+	var isData bool
+	if !pack.AckOnly && !pack.KeepAlive {
+		isData = true
+	}
+
+	// update
+	if isData {
+		// only if data:
+		sim.Inflight[pack.Dest]++
+	}
+
+	if isData {
+		// verify correct:
+		advert := sim.Advertised[pack.Dest]
+		inflight := sim.Inflight[pack.Dest]
+		if inflight > advert {
+			panic(fmt.Sprintf("inflight(%v) > advert(%v) so flow-control has been violated",
+				inflight, advert))
+		}
+	}
+
+	// update
+	// any kind of packet:
+	sim.Advertised[pack.From] = pack.AvailReaderMsgCap
+	p("sim: latest advertised from '%s' is pack.AvailReaderMsgCap: %v", pack.From, pack.AvailReaderMsgCap)
+
+	sim.mapMut.Unlock()
+}
+
+// helper for sendWithLatency, after receive
+func (sim *SimNet) postCheckFlowControlNotViolated(pack *Packet) {
+	sim.mapMut.Lock()
+
+	var isData bool
+	if !pack.AckOnly && !pack.KeepAlive {
+		isData = true
+	}
+	// update
+	if isData {
+		// only if data:
+		sim.Inflight[pack.Dest]--
+	}
 	sim.mapMut.Unlock()
 }
 
