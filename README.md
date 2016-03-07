@@ -58,7 +58,8 @@ Per Peterson and Davie, the SWP has three benefits:
  * SWP can provide flow control. Overly fast senders can be throttled by slower receivers. We implement this here; it was the main motivation for `swp` development.
 
 
-### Author: Jason E. Aten, Ph.d.
+### credits
 
-### License: MIT
+Author: Jason E. Aten, Ph.D.
 
+License: MIT
