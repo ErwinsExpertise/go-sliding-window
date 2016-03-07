@@ -24,7 +24,18 @@ import (
 // Seqno is the sequence number used in the sliding window.
 type Seqno int64
 
-// Packet is what is transmitted between Sender and Recver.
+// Packet is what is transmitted between Sender A and
+// Recver B, where A and B are the two endpoints in a
+// given Session. (Endpoints are specified by the strings localInbox and
+// destInbox in the in the NewSession constructor.)
+//
+// Packets also flow symmetrically from Sender B to Recver A.
+//
+// Special packets are AckOnly and KeepAlive
+// flagged; otherwise normal packets are data
+// segments that have neither of these flags
+// set. Only normal data packets are tracked
+// for timeout and retry purposes.
 type Packet struct {
 	From string
 	Dest string
@@ -41,12 +52,15 @@ type Packet struct {
 	AvailReaderBytesCap int64
 	AvailReaderMsgCap   int64
 
-	// on data payloads, allows the receiver to figure out how
-	// big any gaps are, so as to give accurate flow control
-	// byte count info. Including this packet's len(Data),
 	// CumulBytesTransmitted should give the total accumulated
 	// count of bytes ever transmitted on this session
 	// from `From` to `Dest`.
+	// On data payloads, CumulBytesTransmitted allows
+	// the receiver to figure out how
+	// big any gaps are, so as to give accurate flow control
+	// byte count info. The CumulBytesTransmitted count
+	// should include this packet's len(Data), assuming
+	// this is a data packet.
 	CumulBytesTransmitted int64
 
 	Data []byte
