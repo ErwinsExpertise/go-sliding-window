@@ -184,7 +184,7 @@ func NewSession(net Network,
 }
 
 // Push sends a message packet, blocking until that is done.
-// You can use sess.CountPacketsSentForTransfer() to get
+// You can use s.CountPacketsSentForTransfer() to get
 // the total count of packets Push()-ed so far.
 func (s *Session) Push(pack *Packet) {
 	select {
