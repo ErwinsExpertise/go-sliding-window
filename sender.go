@@ -16,7 +16,7 @@ type AckStatus struct {
 }
 
 // SenderState tracks the sender's sliding window state.
-// To avoid circulate deadlocks, the Sender never talks
+// To avoid circular deadlocks, the SenderState never talks
 // directly to the RecvState. The RecvState will
 // tell the Sender stuff on GotAck.
 type SenderState struct {
