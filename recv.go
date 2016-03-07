@@ -307,7 +307,7 @@ func (r *RecvState) ack(seqno int64, pack *Packet) {
 	//q("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)
 	// send ack
-	now := time.Now()
+	now := r.Clk.Now()
 	ack := &Packet{
 		From:                r.Inbox,
 		Dest:                pack.From,

@@ -176,17 +176,18 @@ func (s *SenderState) Start() {
 			q("%v top of sender select loop", s.Inbox)
 			select {
 			case <-s.keepAlive:
-				q("%v keepAlive at %v", s.Inbox, time.Now())
+				q("%v keepAlive at %v", s.Inbox, s.Clk.Now())
 				s.doKeepAlive()
 
 			case <-regularIntervalWakeup:
-				q("%v regularIntervalWakeup at %v", s.Inbox, time.Now())
+				now := s.Clk.Now()
+				q("%v regularIntervalWakeup at %v", s.Inbox, now)
 
 				// have any of our packets timed-out and need to be
 				// sent again?
 				retry := []*TxqSlot{}
 				for _, slot := range s.SentButNotAcked {
-					if slot.RetryDeadline.Before(time.Now()) {
+					if slot.RetryDeadline.Before(now) {
 						retry = append(retry, slot)
 					}
 				}
@@ -208,7 +209,7 @@ func (s *SenderState) Start() {
 					}
 
 					// reset deadline and resend
-					now := time.Now()
+					now := s.Clk.Now()
 					slot.RetryDeadline = now.Add(s.Timeout)
 					slot.Pack.SeqRetry++
 					slot.Pack.DataSendTm = now
@@ -335,7 +336,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	// data sends get stored in SentButNotAcked
 	s.SentButNotAcked[lfs] = slot
 
-	now := time.Now()
+	now := s.Clk.Now()
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.OrigSendTime = now
 	slot.RetryDeadline = now.Add(s.Timeout)
@@ -360,7 +361,7 @@ func (s *SenderState) doKeepAlive() {
 	// *not* an ack, because we need it to be
 	// acked itself so we get any updated
 	// flow control info from the other end.
-	now := time.Now()
+	now := s.Clk.Now()
 	s.LastSendTime = now
 	kap := &Packet{
 		From:                s.Inbox,
