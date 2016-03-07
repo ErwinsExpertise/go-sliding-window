@@ -4,6 +4,8 @@ import (
 	"sync"
 )
 
+// FlowCtrl serializes access to the Flow state information
+// so that sender and receiver don't trample reads/writes.
 type FlowCtrl struct {
 	mut  sync.Mutex
 	flow Flow
@@ -17,12 +19,10 @@ type Flow struct {
 	ReservedByteCap int64
 	ReservedMsgCap  int64
 
-	// flow control params
-	// current: use these to advertise; kept
+	// flow control params:
+	// These to advertised to senders with
+	// both acks and data segments, and kept
 	// up to date as conditions change.
-	// These already have Reserved capcities above
-	// subtracted from them, so they are
-	// safe to ack to sender.
 	AvailReaderBytesCap int64
 	AvailReaderMsgCap   int64
 }

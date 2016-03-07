@@ -16,14 +16,14 @@ import (
 // not meant to be run on its own, but shows an example
 // of all the setup and teardown in a test.
 func exampleSetup_test() {
-	origdir, tempdir := MakeAndMoveToTempDir() // cd to tempdir
+	origdir, tempdir := makeAndMoveToTempDir() // cd to tempdir
 	p("origdir = '%s'", origdir)
 	p("tempdir = '%s'", tempdir)
-	defer TempDirCleanup(origdir, tempdir)
+	defer tempDirCleanup(origdir, tempdir)
 
 	host := "127.0.0.1"
-	port := GetAvailPort()
-	gnats := StartGnatsd(host, port)
+	port := getAvailPort()
+	gnats := startGnatsd(host, port)
 	defer func() {
 		p("calling gnats.Shutdown()")
 		gnats.Shutdown() // when done
@@ -45,7 +45,7 @@ func exampleSetup_test() {
 	p("pub = %#v", pub)
 }
 
-func MakeAndMoveToTempDir() (origdir string, tmpdir string) {
+func makeAndMoveToTempDir() (origdir string, tmpdir string) {
 
 	// make new temp dir that will have no ".goqclusterid files in it
 	var err error
@@ -65,7 +65,7 @@ func MakeAndMoveToTempDir() (origdir string, tmpdir string) {
 	return origdir, tmpdir
 }
 
-func TempDirCleanup(origdir string, tmpdir string) {
+func tempDirCleanup(origdir string, tmpdir string) {
 	// cleanup
 	os.Chdir(origdir)
 	err := os.RemoveAll(tmpdir)
@@ -75,19 +75,19 @@ func TempDirCleanup(origdir string, tmpdir string) {
 	q("\n TempDirCleanup of '%s' done.\n", tmpdir)
 }
 
-// GetAvailPort asks the OS for an unused port.
+// getAvailPort asks the OS for an unused port.
 // There's a race here, where the port could be grabbed by someone else
 // before the caller gets to Listen on it, but in practice such races
 // are rare. Uses net.Listen("tcp", ":0") to determine a free port, then
 // releases it back to the OS with Listener.Close().
-func GetAvailPort() int {
+func getAvailPort() int {
 	l, _ := net.Listen("tcp", ":0")
 	r := l.Addr()
 	l.Close()
 	return r.(*net.TCPAddr).Port
 }
 
-func StartGnatsd(host string, port int) *server.Server {
+func startGnatsd(host string, port int) *server.Server {
 	//serverList := fmt.Sprintf("nats://%v:%v", host, port)
 
 	// start yourself an embedded gnatsd server
@@ -102,13 +102,13 @@ func StartGnatsd(host string, port int) *server.Server {
 
 	//logger := log.New(os.Stderr, "gnatsd: ", log.LUTC|log.Ldate|log.Ltime|log.Lmicroseconds|log.Llongfile)
 	addr := fmt.Sprintf("%v:%v", host, port)
-	if !PortIsBound(addr) {
+	if !portIsBound(addr) {
 		panic("port not bound " + addr)
 	}
 	return gnats
 }
 
-func PortIsBound(addr string) bool {
+func portIsBound(addr string) bool {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return false
