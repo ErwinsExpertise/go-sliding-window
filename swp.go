@@ -45,7 +45,8 @@ type Packet struct {
 	// big any gaps are, so as to give accurate flow control
 	// byte count info. Including this packet's len(Data),
 	// CumulBytesTransmitted should give the total accumulated
-	// count of bytes ever transmitted on this session.
+	// count of bytes ever transmitted on this session
+	// from `From` to `Dest`.
 	CumulBytesTransmitted int64
 
 	Data []byte
