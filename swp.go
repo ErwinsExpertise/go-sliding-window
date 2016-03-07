@@ -182,8 +182,6 @@ func NewSession(net Network,
 	return sess, nil
 }
 
-var ErrShutdown = fmt.Errorf("shutting down")
-
 // Push sends a message packet, blocking until that is done.
 // You can use sess.CountPacketsSentForTransfer() to get
 // the total count of packets Push()-ed so far.
