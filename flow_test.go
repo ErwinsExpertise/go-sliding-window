@@ -128,7 +128,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	B.Stop()
 
 	// NOT DONE, WORK IN PROGRESS
-	cv.Convey("Given a faster sender A and a slower receiver B, flow-control in the SWP should throttle back the sender so it doesn't overwhelm the downstream receiver's buffers", t, func() {
+	cv.Convey("Given a faster sender A and a slower receiver B, flow-control in the SWP should throttle back the sender so it doesn't overwhelm the downstream receiver's buffers. The current test simply keeps a window of 3 messages on both sender and receiver, and runs 100 messages across the nats bus, checking that they all arrived at the end.", t, func() {
 		//cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		//cv.So(B.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		cv.So(len(A.Swp.Sender.SendHistory), cv.ShouldEqual, 100)
@@ -198,7 +198,7 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	smy.Print()
 
 	// NOT DONE, WORK IN PROGRESS
-	cv.Convey("Given a faster sender A and a slower receiver B, flow-control in the SWP should throttle back the sender so it doesn't overwhelm the downstream receiver's buffers", t, func() {
+	cv.Convey("Given a faster sender A and a slower receiver B, flow-control in the SWP should throttle back the sender so it doesn't overwhelm the downstream receiver's buffers. This version of the test uses the SimNet network simulator, and currently is incomplete: it just runs 100 messages across the wire using a small window of size 3 on either end.", t, func() {
 		//cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		//cv.So(B.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		cv.So(len(A.Swp.Sender.SendHistory), cv.ShouldEqual, 100)
