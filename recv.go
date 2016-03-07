@@ -231,6 +231,7 @@ func (r *RecvState) Start() error {
 }
 
 func (r *RecvState) UpdateFlowControl() {
+	begVal := r.LastAvailReaderMsgCap
 
 	// just like TCP flow control, where
 	// advertisedWindow = maxRecvBuffer - (lastByteRcvd - nextByteRead)
@@ -238,14 +239,9 @@ func (r *RecvState) UpdateFlowControl() {
 	r.LastAvailReaderBytesCap = r.RecvWindowSizeBytes - (r.MaxCumulBytesTrans - (r.LastByteConsumed + 1))
 	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap, r.LastAvailReaderBytesCap)
 
-	/*
-		begVal := r.LastAvailReaderMsgCap
-		flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
-		r.LastAvailReaderBytesCap = flow.AvailReaderBytesCap
-		r.LastAvailReaderMsgCap = flow.AvailReaderMsgCap
-		p("%v UpdateFlowControl in RecvState, bottom: r.LastAvailReaderMsgCap= %v -> %v",
-			r.Inbox, begVal, r.LastAvailReaderMsgCap)
-	*/
+	q("%v UpdateFlowControl in RecvState, bottom: "+
+		"r.LastAvailReaderMsgCap= %v -> %v",
+		r.Inbox, begVal, r.LastAvailReaderMsgCap)
 }
 
 // ack is a helper function, used in the recvloop above.
@@ -279,6 +275,8 @@ func (r *RecvState) Stop() {
 	<-r.Done
 }
 
+// HeldAsString turns r.RcvdButNotConsumed into
+// a string for convenience of display.
 func (r *RecvState) HeldAsString() string {
 	s := ""
 	for sn := range r.RcvdButNotConsumed {

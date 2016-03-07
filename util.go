@@ -145,7 +145,7 @@ func (s *NatsClient) Start() error {
 
 	nc, err := nats.Connect(s.Cfg.ServerList, s.Cfg.Opts...)
 	panicOn(err)
-	p("client connection succeeded.")
+	q("client connection succeeded.")
 	s.Nc = nc
 
 	return nil
