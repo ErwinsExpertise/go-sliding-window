@@ -26,6 +26,9 @@ type RecvState struct {
 
 	snd *SenderState
 
+	LastMsgConsumed  Seqno
+	LargestSeqnoRcvd Seqno
+
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
 
@@ -35,11 +38,13 @@ type RecvState struct {
 
 	ReadyForDelivery []*Packet
 	ReadMessagesCh   chan InOrderSeq
+	NumHeldMessages  chan int64
 }
 
 // InOrderSeq represents ordered data as delivered
 // to the consumer who requests it by asking on
 // the ConsumePacketsCh.
+//
 type InOrderSeq struct {
 	Seq []*Packet
 }
@@ -62,7 +67,11 @@ func NewRecvState(net Network, recvSz int64, timeout time.Duration,
 		RcvdButNotConsumed: make(map[Seqno]*Packet),
 		ReadyForDelivery:   make([]*Packet, 0),
 		ReadMessagesCh:     make(chan InOrderSeq),
+		LastMsgConsumed:    -1,
+		LargestSeqnoRcvd:   -1,
+		NumHeldMessages:    make(chan int64),
 	}
+
 	for i := range r.Rxq {
 		r.Rxq[i] = &RxqSlot{}
 	}
@@ -95,6 +104,8 @@ func (r *RecvState) Start() error {
 			}
 
 			select {
+			case r.NumHeldMessages <- int64(len(r.RcvdButNotConsumed)):
+
 			case deliverToConsumer <- delivery:
 				p("%v made deliverToConsumer delivery of %v packets starting with %v",
 					r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
@@ -102,6 +113,7 @@ func (r *RecvState) Start() error {
 					p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
 						r.Inbox, pack.SeqNum)
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
+					r.LastMsgConsumed = pack.SeqNum
 				}
 				r.ReadyForDelivery = r.ReadyForDelivery[:0]
 			case <-r.ReqStop:
@@ -117,6 +129,9 @@ func (r *RecvState) Start() error {
 						panic(fmt.Errorf("%v no receive capacity, yet received a packet: %#v / Data:'%s'", r.Inbox, pack, string(pack.Data)))
 					}
 				*/
+				if pack.SeqNum > r.LargestSeqnoRcvd {
+					r.LargestSeqnoRcvd = pack.SeqNum
+				}
 				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.UpdateFlowControl()
@@ -202,6 +217,12 @@ func (r *RecvState) Start() error {
 }
 
 func (r *RecvState) UpdateFlowControl() {
+
+	// just like TCP flow control, where
+	// advertisedWindow = maxRecvBuffer - (lastByteRcvd - nextByteRead)
+	r.LastAvailReaderMsgCap = int64(r.RecvWindowSize - (r.LargestSeqnoRcvd - r.LastMsgConsumed))
+	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap)
+
 	/*
 		begVal := r.LastAvailReaderMsgCap
 		flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
@@ -241,8 +262,4 @@ func (r *RecvState) Stop() {
 	}
 	r.mut.Unlock()
 	<-r.Done
-}
-
-func (r *RecvState) NumHeldMessages() int64 {
-	return int64(len(r.RcvdButNotConsumed))
 }

@@ -43,9 +43,16 @@ func (r *FlowCtrl) GetFlow() Flow {
 // flow information from the underlying
 // (nats) network. It returns the latest
 // info in the Flow structure.
-func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
+//
+// NB: availReaderMsgCap is ignored if < 0, so
+// use -1 to indicte no update (just query existing values).
+//
+func (r *FlowCtrl) UpdateFlow(who string, net Network, availReaderMsgCap int64) Flow {
 	r.mut.Lock()
 	defer r.mut.Unlock()
+	if availReaderMsgCap >= 0 {
+		r.flow.AvailReaderBytesCap = availReaderMsgCap
+	}
 	/*
 		// ask nats/sim for current consumption
 		// of internal client buffers.
