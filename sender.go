@@ -55,9 +55,6 @@ type SenderState struct {
 	LastSeenAvailReaderBytesCap int64
 	LastSeenAvailReaderMsgCap   int64
 
-	// EffectiveWindow = AdvertisedWindow - (LastByteSent - LastByteAcked)
-	EffectiveWindow int64
-
 	// do synchronized access via GetFlow()
 	// and UpdateFlow(s.Net)
 	FlowCt         *FlowCtrl
