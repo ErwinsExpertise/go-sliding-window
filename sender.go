@@ -9,8 +9,8 @@ import (
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
 	OnlyUpdateFlowCtrl  bool // don't send ack, just update flow info.
-	AckNum              Seqno
-	AckCameWithPacket   Seqno
+	AckNum              int64
+	AckCameWithPacket   int64
 	AvailReaderBytesCap int64 // for sender throttling/flow-control
 	AvailReaderMsgCap   int64 // for sender throttling/flow-control
 }
@@ -23,10 +23,10 @@ type SenderState struct {
 	Net              Network
 	Inbox            string
 	Dest             string
-	LastAckRec       Seqno
-	LastFrameSent    Seqno
+	LastAckRec       int64
+	LastFrameSent    int64
 	Txq              []*TxqSlot
-	SenderWindowSize Seqno
+	SenderWindowSize int64
 	mut              sync.Mutex
 	Timeout          time.Duration
 
@@ -46,7 +46,7 @@ type SenderState struct {
 	KeepAliveInterval time.Duration
 	keepAlive         <-chan time.Time
 
-	SentButNotAcked map[Seqno]*TxqSlot
+	SentButNotAcked map[int64]*TxqSlot
 
 	// flow control params
 	// last seen from our downstream
@@ -68,7 +68,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		Net:              net,
 		Inbox:            inbox,
 		Dest:             destInbox,
-		SenderWindowSize: Seqno(sendSz),
+		SenderWindowSize: sendSz,
 		Txq:              make([]*TxqSlot, sendSz),
 		Timeout:          timeout,
 		LastFrameSent:    -1,
@@ -80,7 +80,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SendSz:           sendSz,
 		GotAck:           make(chan AckStatus),
 		SendAck:          make(chan *Packet),
-		SentButNotAcked:  make(map[Seqno]*TxqSlot),
+		SentButNotAcked:  make(map[int64]*TxqSlot),
 
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:

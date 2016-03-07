@@ -60,9 +60,6 @@ import (
 
 //msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet
 
-// Seqno is the sequence number used in the sliding window.
-type Seqno int64
-
 // Packet is what is transmitted between Sender A and
 // Recver B, where A and B are the two endpoints in a
 // given Session. (Endpoints are specified by the strings localInbox and
@@ -79,8 +76,8 @@ type Packet struct {
 	From string
 	Dest string
 
-	SeqNum    Seqno
-	AckNum    Seqno
+	SeqNum    int64
+	AckNum    int64
 	AckOnly   bool
 	KeepAlive bool
 
@@ -216,7 +213,7 @@ func (sess *Session) SelfConsumeForTesting() {
 }
 
 // InWindow returns true iff seqno is in [min, max].
-func InWindow(seqno, min, max Seqno) bool {
+func InWindow(seqno, min, max int64) bool {
 	if seqno < min {
 		return false
 	}

@@ -10,9 +10,9 @@ import (
 type RecvState struct {
 	Net                 Network
 	Inbox               string
-	NextFrameExpected   Seqno
+	NextFrameExpected   int64
 	Rxq                 []*RxqSlot
-	RecvWindowSize      Seqno
+	RecvWindowSize      int64
 	RecvWindowSizeBytes int64
 	mut                 sync.Mutex
 	Timeout             time.Duration
@@ -28,15 +28,15 @@ type RecvState struct {
 
 	snd *SenderState
 
-	LastMsgConsumed    Seqno
-	LargestSeqnoRcvd   Seqno
+	LastMsgConsumed    int64
+	LargestSeqnoRcvd   int64
 	MaxCumulBytesTrans int64
 	LastByteConsumed   int64
 
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
 
-	RcvdButNotConsumed map[Seqno]*Packet
+	RcvdButNotConsumed map[int64]*Packet
 
 	ReadyForDelivery []*Packet
 	ReadMessagesCh   chan InOrderSeq
@@ -78,7 +78,7 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 	r := &RecvState{
 		Net:                 net,
 		Inbox:               inbox,
-		RecvWindowSize:      Seqno(recvSz),
+		RecvWindowSize:      recvSz,
 		RecvWindowSizeBytes: recvSzBytes,
 		Rxq:                 make([]*RxqSlot, recvSz),
 		Timeout:             timeout,
@@ -87,7 +87,7 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 		Done:                make(chan bool),
 		RecvSz:              recvSz,
 		snd:                 snd,
-		RcvdButNotConsumed:  make(map[Seqno]*Packet),
+		RcvdButNotConsumed:  make(map[int64]*Packet),
 		ReadyForDelivery:    make([]*Packet, 0),
 		ReadMessagesCh:      make(chan InOrderSeq),
 		LastMsgConsumed:     -1,
@@ -284,7 +284,7 @@ func (r *RecvState) UpdateFlowControl() {
 
 // ack is a helper function, used in the recvloop above.
 // Currently seqno is always r.NextFrameExpected-1
-func (r *RecvState) ack(seqno Seqno, dest string) {
+func (r *RecvState) ack(seqno int64, dest string) {
 	r.UpdateFlowControl()
 	//q("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)

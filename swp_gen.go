@@ -35,20 +35,12 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 				return
 			}
 		case "SeqNum":
-			{
-				var tmp int64
-				tmp, err = dc.ReadInt64()
-				z.SeqNum = Seqno(tmp)
-			}
+			z.SeqNum, err = dc.ReadInt64()
 			if err != nil {
 				return
 			}
 		case "AckNum":
-			{
-				var tmp int64
-				tmp, err = dc.ReadInt64()
-				z.AckNum = Seqno(tmp)
-			}
+			z.AckNum, err = dc.ReadInt64()
 			if err != nil {
 				return
 			}
@@ -118,7 +110,7 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	err = en.WriteInt64(int64(z.SeqNum))
+	err = en.WriteInt64(z.SeqNum)
 	if err != nil {
 		return
 	}
@@ -127,7 +119,7 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	err = en.WriteInt64(int64(z.AckNum))
+	err = en.WriteInt64(z.AckNum)
 	if err != nil {
 		return
 	}
@@ -200,10 +192,10 @@ func (z *Packet) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, z.Dest)
 	// string "SeqNum"
 	o = append(o, 0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
-	o = msgp.AppendInt64(o, int64(z.SeqNum))
+	o = msgp.AppendInt64(o, z.SeqNum)
 	// string "AckNum"
 	o = append(o, 0xa6, 0x41, 0x63, 0x6b, 0x4e, 0x75, 0x6d)
-	o = msgp.AppendInt64(o, int64(z.AckNum))
+	o = msgp.AppendInt64(o, z.AckNum)
 	// string "AckOnly"
 	o = append(o, 0xa7, 0x41, 0x63, 0x6b, 0x4f, 0x6e, 0x6c, 0x79)
 	o = msgp.AppendBool(o, z.AckOnly)
@@ -252,20 +244,12 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "SeqNum":
-			{
-				var tmp int64
-				tmp, bts, err = msgp.ReadInt64Bytes(bts)
-				z.SeqNum = Seqno(tmp)
-			}
+			z.SeqNum, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
 				return
 			}
 		case "AckNum":
-			{
-				var tmp int64
-				tmp, bts, err = msgp.ReadInt64Bytes(bts)
-				z.AckNum = Seqno(tmp)
-			}
+			z.AckNum, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
 				return
 			}
@@ -312,53 +296,5 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 func (z *Packet) Msgsize() (s int) {
 	s = 1 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 7 + msgp.Int64Size + 7 + msgp.Int64Size + 8 + msgp.BoolSize + 10 + msgp.BoolSize + 20 + msgp.Int64Size + 18 + msgp.Int64Size + 22 + msgp.Int64Size + 5 + msgp.BytesPrefixSize + len(z.Data)
-	return
-}
-
-// DecodeMsg implements msgp.Decodable
-func (z *Seqno) DecodeMsg(dc *msgp.Reader) (err error) {
-	{
-		var tmp int64
-		tmp, err = dc.ReadInt64()
-		(*z) = Seqno(tmp)
-	}
-	if err != nil {
-		return
-	}
-	return
-}
-
-// EncodeMsg implements msgp.Encodable
-func (z Seqno) EncodeMsg(en *msgp.Writer) (err error) {
-	err = en.WriteInt64(int64(z))
-	if err != nil {
-		return
-	}
-	return
-}
-
-// MarshalMsg implements msgp.Marshaler
-func (z Seqno) MarshalMsg(b []byte) (o []byte, err error) {
-	o = msgp.Require(b, z.Msgsize())
-	o = msgp.AppendInt64(o, int64(z))
-	return
-}
-
-// UnmarshalMsg implements msgp.Unmarshaler
-func (z *Seqno) UnmarshalMsg(bts []byte) (o []byte, err error) {
-	{
-		var tmp int64
-		tmp, bts, err = msgp.ReadInt64Bytes(bts)
-		(*z) = Seqno(tmp)
-	}
-	if err != nil {
-		return
-	}
-	o = bts
-	return
-}
-
-func (z Seqno) Msgsize() (s int) {
-	s = msgp.Int64Size
 	return
 }

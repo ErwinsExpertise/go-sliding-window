@@ -20,7 +20,7 @@ type SimNet struct {
 	mapMut    sync.Mutex
 
 	// simulate loss of the first packets
-	DiscardOnce Seqno
+	DiscardOnce int64
 
 	// simulate re-ordering of packets by setting this to 1
 	SimulateReorderNext int
