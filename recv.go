@@ -36,8 +36,6 @@ type RecvState struct {
 	LastAvailReaderBytesCap int64
 	LastAvailReaderMsgCap   int64
 
-	// todo: implement back pressure using this:
-	// (currently we assume everything received has been consumed).
 	RcvdButNotConsumed map[Seqno]*Packet
 
 	ReadyForDelivery []*Packet
