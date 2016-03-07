@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+type ConsumerFunc func(readme []*Packet)
+
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
 	Net               Network
@@ -31,24 +33,33 @@ type RecvState struct {
 
 	// todo: implement back pressure using this:
 	// (currently we assume everything received has been consumed).
-	ReceivedButNotConsumed map[Seqno]*RxqSlot
+	RcvdButNotConsumed map[Seqno]*Packet
+
+	CallbackToBlockingConsumer ConsumerFunc
 }
 
 // NewRecvState makes a new RecvState manager.
-func NewRecvState(net Network, recvSz int64, timeout time.Duration, inbox string, snd *SenderState) *RecvState {
-	return &RecvState{
-		Net:            net,
-		Inbox:          inbox,
-		RecvWindowSize: Seqno(recvSz),
-		Rxq:            make([]*RxqSlot, recvSz),
-		Timeout:        timeout,
-		RecvHistory:    make([]*Packet, 0),
-		ReqStop:        make(chan bool),
-		Done:           make(chan bool),
-		RecvSz:         recvSz,
-		snd:            snd,
-		ReceivedButNotConsumed: make(map[Seqno]*RxqSlot),
+func NewRecvState(net Network, recvSz int64, timeout time.Duration,
+	inbox string, snd *SenderState, consumer ConsumerFunc) *RecvState {
+
+	r := &RecvState{
+		Net:                        net,
+		Inbox:                      inbox,
+		RecvWindowSize:             Seqno(recvSz),
+		Rxq:                        make([]*RxqSlot, recvSz),
+		Timeout:                    timeout,
+		RecvHistory:                make([]*Packet, 0),
+		ReqStop:                    make(chan bool),
+		Done:                       make(chan bool),
+		RecvSz:                     recvSz,
+		snd:                        snd,
+		RcvdButNotConsumed:         make(map[Seqno]*Packet),
+		CallbackToBlockingConsumer: consumer,
 	}
+	for i := range r.Rxq {
+		r.Rxq[i] = &RxqSlot{}
+	}
+	return r
 }
 
 // RecvStart receives. It receives both data and acks from earlier sends.
@@ -103,7 +114,15 @@ func (r *RecvState) Start() error {
 						r.ack(r.NextFrameExpected-1, pack.From)
 						continue recvloop
 					}
-					// actual data received, receiver side stuff:
+					// actual data received, receiver side stuff
+
+					// if not old dup, add to hash of to-be-consumed
+					if pack.SeqNum >= r.NextFrameExpected {
+						r.RcvdButNotConsumed[pack.SeqNum] = pack
+						p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v",
+							r.Inbox, pack.SeqNum)
+					}
+
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
 						// Variation from textbook TCP: In the
@@ -126,12 +145,17 @@ func (r *RecvState) Start() error {
 					//	r.Inbox, slot.Pack)
 
 					if pack.SeqNum == r.NextFrameExpected {
+						// horray, we can deliver one or more frames in order
+
 						//q("%v packet.SeqNum %v matches r.NextFrameExpected",
 						//	r.Inbox, pack.SeqNum)
+						var readyForDelivery []*Packet
 						for slot.Received {
 
 							//q("%v actual in-order receive happening for SeqNum %v",
 							//	r.Inbox, slot.Pack.SeqNum)
+
+							readyForDelivery = append(readyForDelivery, slot.Pack)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
 							//q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
@@ -139,6 +163,15 @@ func (r *RecvState) Start() error {
 							slot.Pack = nil
 							r.NextFrameExpected++
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
+						}
+						if r.CallbackToBlockingConsumer != nil {
+							// block here until consumer has read packet
+							r.CallbackToBlockingConsumer(readyForDelivery)
+						}
+						for _, pack := range readyForDelivery {
+							p("%v after deliver, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
+								r.Inbox, pack.SeqNum)
+							delete(r.RcvdButNotConsumed, pack.SeqNum)
 						}
 						r.ack(r.NextFrameExpected-1, pack.From)
 					} else {
@@ -153,12 +186,14 @@ func (r *RecvState) Start() error {
 }
 
 func (r *RecvState) UpdateFlowControl() {
-	begVal := r.LastAvailReaderMsgCap
-	flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
-	r.LastAvailReaderBytesCap = flow.AvailReaderBytesCap
-	r.LastAvailReaderMsgCap = flow.AvailReaderMsgCap
-	p("%v UpdateFlowControl in RecvState, bottom: r.LastAvailReaderMsgCap= %v -> %v",
-		r.Inbox, begVal, r.LastAvailReaderMsgCap)
+	/*
+		begVal := r.LastAvailReaderMsgCap
+		flow := r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net)
+		r.LastAvailReaderBytesCap = flow.AvailReaderBytesCap
+		r.LastAvailReaderMsgCap = flow.AvailReaderMsgCap
+		p("%v UpdateFlowControl in RecvState, bottom: r.LastAvailReaderMsgCap= %v -> %v",
+			r.Inbox, begVal, r.LastAvailReaderMsgCap)
+	*/
 }
 
 // ack is a helper function, used in the recvloop above.
@@ -190,4 +225,8 @@ func (r *RecvState) Stop() {
 	}
 	r.mut.Unlock()
 	<-r.Done
+}
+
+func (r *RecvState) NumHeldMessages() int64 {
+	return int64(len(r.RcvdButNotConsumed))
 }

@@ -46,21 +46,22 @@ func (r *FlowCtrl) GetFlow() Flow {
 func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
 	r.mut.Lock()
 	defer r.mut.Unlock()
+	/*
+		// ask nats/sim for current consumption
+		// of internal client buffers.
+		blim, mlim := net.BufferCaps()
+		//p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
+		r.flow.AvailReaderBytesCap = blim - r.flow.ReservedByteCap
+		r.flow.AvailReaderMsgCap = mlim - r.flow.ReservedMsgCap
 
-	// ask nats/sim for current consumption
-	// of internal client buffers.
-	blim, mlim := net.BufferCaps()
-	//p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
-	r.flow.AvailReaderBytesCap = blim - r.flow.ReservedByteCap
-	r.flow.AvailReaderMsgCap = mlim - r.flow.ReservedMsgCap
-
-	if r.flow.AvailReaderBytesCap < 0 {
-		r.flow.AvailReaderBytesCap = 0
-	}
-	if r.flow.AvailReaderMsgCap < 0 {
-		r.flow.AvailReaderMsgCap = 0
-	}
-	p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'  b/c blim=%v  mlim=%v", who, r.flow, blim, mlim)
+		if r.flow.AvailReaderBytesCap < 0 {
+			r.flow.AvailReaderBytesCap = 0
+		}
+		if r.flow.AvailReaderMsgCap < 0 {
+			r.flow.AvailReaderMsgCap = 0
+		}
+		p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'  b/c blim=%v  mlim=%v", who, r.flow, blim, mlim)
+	*/
 	cp := r.flow
 	return cp
 }

@@ -48,6 +48,7 @@ type Linear struct {
 	DestCh chan *Packet
 }
 
+/*
 // BufferCaps returns the byte and message limits
 // currently in effect, so that flow control
 // can be used to avoid sender overrunning them.
@@ -55,6 +56,7 @@ func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
 	// limits so high they shouldn't be restrictive
 	return 1024 * 1024 * 1024, 1024
 }
+*/
 
 // NewSimNet makes a network simulator. The
 // latency is one-way trip time; lossProb is the probability of

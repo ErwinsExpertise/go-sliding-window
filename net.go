@@ -16,5 +16,5 @@ type Network interface {
 	// can be used to avoid sender overrunning them.
 	// Not necessarily safe for concurrent access, so serialize
 	// access if the Network is shared.
-	BufferCaps() (bytecap int64, msgcap int64)
+	//BufferCaps() (bytecap int64, msgcap int64)
 }

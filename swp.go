@@ -37,13 +37,8 @@ type Packet struct {
 	// like the byte count AdvertisedWindow in TCP, but
 	// since nats has both byte and message count
 	// limits, we want convey these instead.
-	//
-	// NB we'll want to reserve some headroom in our
-	// nats buffers for receipt of acks and other
-	// control messages (ReservedByteCap, ReservedMsgCap)
-	//
-	AvailReaderBytesCap int64 // for sender throttling/flow-control
-	AvailReaderMsgCap   int64 // for sender throttling/flow-control
+	AvailReaderBytesCap int64
+	AvailReaderMsgCap   int64
 
 	Data []byte
 }
@@ -69,20 +64,16 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowSize int64,
-	timeout time.Duration, inbox string, destInbox string) *SWP {
+	timeout time.Duration, inbox string, destInbox string,
+	consumer ConsumerFunc) *SWP {
+
 	recvSz := windowSize
 	sendSz := windowSize
 	snd := NewSenderState(net, sendSz, timeout, inbox, destInbox)
-	rcv := NewRecvState(net, recvSz, timeout, inbox, snd)
+	rcv := NewRecvState(net, recvSz, timeout, inbox, snd, consumer)
 	swp := &SWP{
 		Sender: snd,
 		Recver: rcv,
-	}
-	for i := range swp.Sender.Txq {
-		swp.Sender.Txq[i] = &TxqSlot{}
-	}
-	for i := range swp.Recver.Rxq {
-		swp.Recver.Rxq[i] = &RxqSlot{}
 	}
 
 	return swp
@@ -104,10 +95,11 @@ func NewSession(net Network,
 	localInbox string,
 	destInbox string,
 	windowSz int64,
-	timeout time.Duration) (*Session, error) {
+	timeout time.Duration,
+	consumer ConsumerFunc) (*Session, error) {
 
 	sess := &Session{
-		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox),
+		Swp:         NewSWP(net, windowSz, timeout, localInbox, destInbox, consumer),
 		MyInbox:     localInbox,
 		Destination: destInbox,
 		Net:         net,

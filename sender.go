@@ -102,7 +102,9 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		LastSeenAvailReaderMsgCap:   2,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
 	}
-
+	for i := range s.Txq {
+		s.Txq[i] = &TxqSlot{}
+	}
 	return s
 }
 
