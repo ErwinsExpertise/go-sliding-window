@@ -76,8 +76,26 @@ type Packet struct {
 	From string
 	Dest string
 
-	SeqNum    int64
-	AckNum    int64
+	// DataSendTm is stamped anew on each data send and retry
+	// from the sender. Acks by the receiver are
+	// stamped with the AckTm field, and DataSendTm
+	// is preserved for each of RTT computation.
+	DataSendTm time.Time
+
+	SeqNum int64
+
+	// SeqRetry: 0, 1, 2: allow
+	// accurate RTT estimates. Only on
+	// data frames; acks/control will be negative.
+	SeqRetry int64
+
+	AckNum int64
+
+	// AckRetry: which SeqRetry attempt for
+	// the AckNum this AckNum is associated with.
+	AckRetry   int64
+	AckReplyTm time.Time
+
 	AckOnly   bool
 	KeepAlive bool
 
@@ -100,18 +118,6 @@ type Packet struct {
 	CumulBytesTransmitted int64
 
 	Data []byte
-}
-
-// TxqSlot is the sender's sliding window element.
-type TxqSlot struct {
-	RetryDeadline time.Time
-	Pack          *Packet
-}
-
-// RxqSlot is the receiver's sliding window element.
-type RxqSlot struct {
-	Received bool
-	Pack     *Packet
 }
 
 // SWP holds the Sliding Window Protocol state

@@ -6,11 +6,20 @@ import (
 	"time"
 )
 
+// TxqSlot is the sender's sliding window element.
+type TxqSlot struct {
+	RetryDeadline time.Time
+	Pack          *Packet
+}
+
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
 	OnlyUpdateFlowCtrl  bool // don't send ack, just update flow info.
 	AckNum              int64
+	AckRetry            int64
 	AckCameWithPacket   int64
+	DataSendTm          time.Time
+	AckReplyTm          time.Time
 	AvailReaderBytesCap int64 // for sender throttling/flow-control
 	AvailReaderMsgCap   int64 // for sender throttling/flow-control
 }
@@ -196,7 +205,10 @@ func (s *SenderState) Start() {
 					}
 
 					// reset deadline and resend
-					slot.RetryDeadline = time.Now().Add(s.Timeout)
+					now := time.Now()
+					slot.RetryDeadline = now.Add(s.Timeout)
+					slot.Pack.SeqRetry++
+					slot.Pack.DataSendTm = now
 
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
@@ -228,6 +240,8 @@ func (s *SenderState) Start() {
 					s.Inbox, s.LastSeenAvailReaderMsgCap, a.AvailReaderMsgCap)
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
+
+				s.UpdateRTT(&a)
 
 				// need to update our map of SentButNotAcked
 				// and remove everything before AckNum, which is cumulative.
@@ -363,4 +377,9 @@ func min(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+func (s *SenderState) UpdateRTT(a *AckStatus) {
+	// a.AckNum, a.AckRetry ->
+
 }

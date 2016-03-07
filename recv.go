@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// RxqSlot is the receiver's sliding window element.
+type RxqSlot struct {
+	Received bool
+	Pack     *Packet
+}
+
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
 	Net                 Network
@@ -186,12 +192,15 @@ func (r *RecvState) Start() error {
 
 				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
-				r.UpdateFlowControl()
+				r.UpdateFlowControl(pack)
 				// and tell snd about the new flow-control info
 				as := AckStatus{
 					OnlyUpdateFlowCtrl:  !pack.AckOnly,
 					AckNum:              pack.AckNum,
+					AckRetry:            pack.AckRetry,
 					AckCameWithPacket:   pack.SeqNum,
+					DataSendTm:          pack.DataSendTm,
+					AckReplyTm:          pack.AckReplyTm,
 					AvailReaderBytesCap: pack.AvailReaderBytesCap,
 					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 				}
@@ -204,7 +213,7 @@ func (r *RecvState) Start() error {
 				}
 				if !pack.AckOnly {
 					if pack.KeepAlive {
-						r.ack(r.NextFrameExpected-1, pack.From)
+						r.ack(r.NextFrameExpected-1, pack)
 						continue recvloop
 					}
 					// actual data received, receiver side stuff
@@ -229,7 +238,7 @@ func (r *RecvState) Start() error {
 						//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
 						//	r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
-						r.ack(r.NextFrameExpected-1, pack.From)
+						r.ack(r.NextFrameExpected-1, pack)
 						continue recvloop
 					}
 					slot.Received = true
@@ -256,7 +265,7 @@ func (r *RecvState) Start() error {
 							r.NextFrameExpected++
 							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 						}
-						r.ack(r.NextFrameExpected-1, pack.From)
+						r.ack(r.NextFrameExpected-1, pack)
 					} else {
 						//q("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
 						//	r.Inbox, pack.SeqNum, r.NextFrameExpected)
@@ -275,7 +284,7 @@ func (r *RecvState) Start() error {
 // status, and tells the sender about this
 // indirectly with an r.snd.FlowCt.UpdateFlow()
 // update.
-func (r *RecvState) UpdateFlowControl() {
+func (r *RecvState) UpdateFlowControl(pack *Packet) {
 	begVal := r.LastAvailReaderMsgCap
 
 	// just like TCP flow control, where
@@ -291,19 +300,24 @@ func (r *RecvState) UpdateFlowControl() {
 
 // ack is a helper function, used in the recvloop above.
 // Currently seqno is always r.NextFrameExpected-1
-func (r *RecvState) ack(seqno int64, dest string) {
-	r.UpdateFlowControl()
+func (r *RecvState) ack(seqno int64, pack *Packet) {
+	r.UpdateFlowControl(pack)
 	//q("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)
 	// send ack
+	now := time.Now()
 	ack := &Packet{
 		From:                r.Inbox,
-		Dest:                dest,
+		Dest:                pack.From,
 		SeqNum:              -99, // => ack flag
+		SeqRetry:            -99,
 		AckNum:              seqno,
 		AckOnly:             true,
 		AvailReaderBytesCap: r.LastAvailReaderBytesCap,
 		AvailReaderMsgCap:   r.LastAvailReaderMsgCap,
+		AckRetry:            pack.SeqRetry,
+		AckReplyTm:          now,
+		DataSendTm:          pack.DataSendTm,
 	}
 	r.snd.SendAck <- ack
 }
