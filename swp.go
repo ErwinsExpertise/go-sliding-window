@@ -1,3 +1,31 @@
+/*
+Package swp implements the same Sliding Window Protocol that
+TCP uses for flow-control and reliable, ordered delivery.
+
+The Nats event bus [https://nats.io/](https://nats.io/) is a
+software model of a hardware multicast
+switch. Nats provides multicast, but no guarantees of delivery
+and no flow-control. This works fine as long as your
+downstream read/subscribe capacity is larger than your
+publishing rate.
+
+If your nats publisher evers produces
+faster than your subscriber can keep up, you may overrun
+your buffers and drop messages. If your sender is local
+and replaying a disk file of traffic over nats, you are
+guanateed to exhaust even the largest of the internal
+nats client buffers. In addition you may wish guaranteed
+order of delivery (even with dropped messages), which
+swp provides.
+
+Hence swp was built to provide flow-control and reliable, ordered
+delivery on top of the nats event bus. It reproduces the
+TCP sliding window and flow-control mechanism in a
+Session between two nats clients. It provides flow
+control between exactly two nats endpoints; in many
+cases this is sufficient to allow all subscribers to
+keep up.
+*/
 package swp
 
 import (
