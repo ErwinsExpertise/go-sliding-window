@@ -40,8 +40,8 @@ func (r *FlowCtrl) GetFlow() Flow {
 }
 
 // UpdateFlow updates the
-// flow information from the underlying
-// (nats) network. It returns the latest
+// flow information.
+// It returns the latest
 // info in the Flow structure.
 //
 // NB: availReaderMsgCap is ignored if < 0, so

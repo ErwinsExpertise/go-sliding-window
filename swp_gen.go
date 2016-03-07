@@ -34,13 +34,33 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 			if err != nil {
 				return
 			}
+		case "DataSendTm":
+			z.DataSendTm, err = dc.ReadTime()
+			if err != nil {
+				return
+			}
 		case "SeqNum":
 			z.SeqNum, err = dc.ReadInt64()
 			if err != nil {
 				return
 			}
+		case "SeqRetry":
+			z.SeqRetry, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
 		case "AckNum":
 			z.AckNum, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
+		case "AckRetry":
+			z.AckRetry, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
+		case "AckReplyTm":
+			z.AckReplyTm, err = dc.ReadTime()
 			if err != nil {
 				return
 			}
@@ -86,9 +106,9 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 10
+	// map header, size 14
 	// write "From"
-	err = en.Append(0x8a, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	err = en.Append(0x8e, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
 	if err != nil {
 		return err
 	}
@@ -105,6 +125,15 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
+	// write "DataSendTm"
+	err = en.Append(0xaa, 0x44, 0x61, 0x74, 0x61, 0x53, 0x65, 0x6e, 0x64, 0x54, 0x6d)
+	if err != nil {
+		return err
+	}
+	err = en.WriteTime(z.DataSendTm)
+	if err != nil {
+		return
+	}
 	// write "SeqNum"
 	err = en.Append(0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
 	if err != nil {
@@ -114,12 +143,39 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
+	// write "SeqRetry"
+	err = en.Append(0xa8, 0x53, 0x65, 0x71, 0x52, 0x65, 0x74, 0x72, 0x79)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt64(z.SeqRetry)
+	if err != nil {
+		return
+	}
 	// write "AckNum"
 	err = en.Append(0xa6, 0x41, 0x63, 0x6b, 0x4e, 0x75, 0x6d)
 	if err != nil {
 		return err
 	}
 	err = en.WriteInt64(z.AckNum)
+	if err != nil {
+		return
+	}
+	// write "AckRetry"
+	err = en.Append(0xa8, 0x41, 0x63, 0x6b, 0x52, 0x65, 0x74, 0x72, 0x79)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt64(z.AckRetry)
+	if err != nil {
+		return
+	}
+	// write "AckReplyTm"
+	err = en.Append(0xaa, 0x41, 0x63, 0x6b, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x54, 0x6d)
+	if err != nil {
+		return err
+	}
+	err = en.WriteTime(z.AckReplyTm)
 	if err != nil {
 		return
 	}
@@ -183,19 +239,31 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 // MarshalMsg implements msgp.Marshaler
 func (z *Packet) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 10
+	// map header, size 14
 	// string "From"
-	o = append(o, 0x8a, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	o = append(o, 0x8e, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
 	o = msgp.AppendString(o, z.From)
 	// string "Dest"
 	o = append(o, 0xa4, 0x44, 0x65, 0x73, 0x74)
 	o = msgp.AppendString(o, z.Dest)
+	// string "DataSendTm"
+	o = append(o, 0xaa, 0x44, 0x61, 0x74, 0x61, 0x53, 0x65, 0x6e, 0x64, 0x54, 0x6d)
+	o = msgp.AppendTime(o, z.DataSendTm)
 	// string "SeqNum"
 	o = append(o, 0xa6, 0x53, 0x65, 0x71, 0x4e, 0x75, 0x6d)
 	o = msgp.AppendInt64(o, z.SeqNum)
+	// string "SeqRetry"
+	o = append(o, 0xa8, 0x53, 0x65, 0x71, 0x52, 0x65, 0x74, 0x72, 0x79)
+	o = msgp.AppendInt64(o, z.SeqRetry)
 	// string "AckNum"
 	o = append(o, 0xa6, 0x41, 0x63, 0x6b, 0x4e, 0x75, 0x6d)
 	o = msgp.AppendInt64(o, z.AckNum)
+	// string "AckRetry"
+	o = append(o, 0xa8, 0x41, 0x63, 0x6b, 0x52, 0x65, 0x74, 0x72, 0x79)
+	o = msgp.AppendInt64(o, z.AckRetry)
+	// string "AckReplyTm"
+	o = append(o, 0xaa, 0x41, 0x63, 0x6b, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x54, 0x6d)
+	o = msgp.AppendTime(o, z.AckReplyTm)
 	// string "AckOnly"
 	o = append(o, 0xa7, 0x41, 0x63, 0x6b, 0x4f, 0x6e, 0x6c, 0x79)
 	o = msgp.AppendBool(o, z.AckOnly)
@@ -243,13 +311,33 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			if err != nil {
 				return
 			}
+		case "DataSendTm":
+			z.DataSendTm, bts, err = msgp.ReadTimeBytes(bts)
+			if err != nil {
+				return
+			}
 		case "SeqNum":
 			z.SeqNum, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
 				return
 			}
+		case "SeqRetry":
+			z.SeqRetry, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
 		case "AckNum":
 			z.AckNum, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
+		case "AckRetry":
+			z.AckRetry, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
+		case "AckReplyTm":
+			z.AckReplyTm, bts, err = msgp.ReadTimeBytes(bts)
 			if err != nil {
 				return
 			}
@@ -295,6 +383,6 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 }
 
 func (z *Packet) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 7 + msgp.Int64Size + 7 + msgp.Int64Size + 8 + msgp.BoolSize + 10 + msgp.BoolSize + 20 + msgp.Int64Size + 18 + msgp.Int64Size + 22 + msgp.Int64Size + 5 + msgp.BytesPrefixSize + len(z.Data)
+	s = 1 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 11 + msgp.TimeSize + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 11 + msgp.TimeSize + 8 + msgp.BoolSize + 10 + msgp.BoolSize + 20 + msgp.Int64Size + 18 + msgp.Int64Size + 22 + msgp.Int64Size + 5 + msgp.BytesPrefixSize + len(z.Data)
 	return
 }

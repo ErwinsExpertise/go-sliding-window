@@ -58,7 +58,7 @@ import (
 
 //go:generate msgp
 
-//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet
+//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet Network Session SWP
 
 // Packet is what is transmitted between Sender A and
 // Receiver B, where A and B are the two endpoints in a
@@ -79,7 +79,15 @@ type Packet struct {
 	// DataSendTm is stamped anew on each data send and retry
 	// from the sender. Acks by the receiver are
 	// stamped with the AckTm field, and DataSendTm
-	// is preserved for each of RTT computation.
+	// is preserved for each of round-trip time (RTT) computation.
+	// For the rationale for updating the timestamp on each
+	// retry, see the discussion of the Karn/Partridge
+	// algorithm, p302 of Peterson and Davie 1996.
+	// Summary: Accurate RTT requires accurate association of
+	// ack with which retry it is responding to, and thus
+	// this is the important time. If you need to know
+	// when a data packet was first/originally transmitted, see
+	// the TxqSlot.OrigSendTime value.
 	DataSendTm time.Time
 
 	SeqNum int64

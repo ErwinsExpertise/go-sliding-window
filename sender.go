@@ -8,6 +8,7 @@ import (
 
 // TxqSlot is the sender's sliding window element.
 type TxqSlot struct {
+	OrigSendTime  time.Time
 	RetryDeadline time.Time
 	Pack          *Packet
 }
@@ -334,6 +335,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 
 	now := time.Now()
 	s.SendHistory = append(s.SendHistory, pack)
+	slot.OrigSendTime = now
 	slot.RetryDeadline = now.Add(s.Timeout)
 	s.LastSendTime = now
 
