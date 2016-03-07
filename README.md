@@ -59,7 +59,7 @@ Per Peterson and Davie, the SWP has three benefits:
 
 ### todo
 
-Optimal bandwidth allocation (when to timeout and retry) requires good estimates of the actual round-trip time between endpoints A and B in a Session, which may not be known in advance and may evolve over time. Currently this is just a user supplied parameter when creating a Session, and no exponential back-off is used. Nats runs over TCP anyway, so this may or may not be important to implement in `swp`. To make a session more convenient to configure however, we do plan to implement [Karn/Partridge algorithm](https://en.wikipedia.org/wiki/Karn%27s_algorithm) or similar in the near future. See also https://tools.ietf.org/html/rfc6298
+Optimal bandwidth allocation (when to timeout and retry) requires good estimates of the actual round-trip time between endpoints A and B in a Session, which may not be known in advance and may evolve over time. Currently this is just a user supplied parameter when creating a Session, and no exponential back-off is used. Nats runs over TCP anyway, so this may or may not be important to implement in `swp`. To make a session more convenient to configure however, we do plan to implement [the Karn/Partridge algorithm](https://en.wikipedia.org/wiki/Karn%27s_algorithm) or similar in the near future. See also https://tools.ietf.org/html/rfc6298
 
 ### credits
 
