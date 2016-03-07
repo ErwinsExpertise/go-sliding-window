@@ -80,7 +80,7 @@ func (r *RecvState) Start() error {
 						panic(fmt.Errorf("%v no receive capacity, yet received a packet: %#v / Data:'%s'", r.Inbox, pack, string(pack.Data)))
 					}
 				*/
-				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// stuff has changed, so update
 				r.UpdateFlowControl()
 				// and tell snd about the new flow-control info

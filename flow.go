@@ -60,7 +60,7 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network) Flow {
 	if r.flow.AvailReaderMsgCap < 0 {
 		r.flow.AvailReaderMsgCap = 0
 	}
-	//p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'", who, r.flow)
+	p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'  b/c blim=%v  mlim=%v", who, r.flow, blim, mlim)
 	cp := r.flow
 	return cp
 }

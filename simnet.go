@@ -37,7 +37,7 @@ type SimNet struct {
 	// receive linearization, so we can
 	// properly check the accounting of the
 	// flow control
-	LinearizeReceives chan Linear
+	// LinearizeReceives chan Linear
 
 	ReqStop chan bool
 	Done    chan bool
@@ -53,7 +53,7 @@ type Linear struct {
 // can be used to avoid sender overrunning them.
 func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
 	// limits so high they shouldn't be restrictive
-	return 5000, 1
+	return 1024 * 1024 * 1024, 1024
 }
 
 // NewSimNet makes a network simulator. The
@@ -61,22 +61,23 @@ func (n *SimNet) BufferCaps() (bytecap int64, msgcap int64) {
 // the packet getting lost on the network.
 func NewSimNet(lossProb float64, latency time.Duration) *SimNet {
 	s := &SimNet{
-		Net:               make(map[string]chan *Packet),
-		LossProb:          lossProb,
-		Latency:           latency,
-		DiscardOnce:       -1,
-		TotalSent:         make(map[string]int64),
-		TotalRcvd:         make(map[string]int64),
-		Advertised:        make(map[string]int64),
-		Inflight:          make(map[string]int64),
-		LinearizeReceives: make(chan Linear),
-		ReqStop:           make(chan bool),
-		Done:              make(chan bool),
+		Net:         make(map[string]chan *Packet),
+		LossProb:    lossProb,
+		Latency:     latency,
+		DiscardOnce: -1,
+		TotalSent:   make(map[string]int64),
+		TotalRcvd:   make(map[string]int64),
+		Advertised:  make(map[string]int64),
+		Inflight:    make(map[string]int64),
+		//LinearizeReceives: make(chan Linear),
+		ReqStop: make(chan bool),
+		Done:    make(chan bool),
 	}
-	s.StartLinearizer()
+	//s.StartLinearizer()
 	return s
 }
 
+/*
 // deliver packets in a linearized order,
 // serialized throught the single s.LinearizeReceives channel,
 // so flow control can be verified.
@@ -96,6 +97,7 @@ func (sim *SimNet) StartLinearizer() {
 		}
 	}()
 }
+*/
 
 func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 	ch := make(chan *Packet)
