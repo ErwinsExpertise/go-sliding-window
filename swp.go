@@ -2,7 +2,7 @@
 Package swp implements the same Sliding Window Protocol that
 TCP uses for flow-control and reliable, ordered delivery.
 
-The Nats event bus [https://nats.io/](https://nats.io/) is a
+The Nats event bus (https://nats.io/) is a
 software model of a hardware multicast
 switch. Nats provides multicast, but no guarantees of delivery
 and no flow-control. This works fine as long as your
