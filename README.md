@@ -51,9 +51,7 @@ ordering, and flow-control.
 Reference: pp118-120, Computer Networks: A Systems Approach
   by Peterson and Davie, Morgan Kaufmann Publishers, 1996.
   For flow control implementation details see section 6.2.4
-  "Sliding Window Revisted", pp296-299. For discussion
-  of RTT estimation via Karn/Partridge or Jacobson/Karels
-  see pp302-304.
+  "Sliding Window Revisted", pp296-299.
 
 Per Peterson and Davie, the SWP has three benefits:
 
