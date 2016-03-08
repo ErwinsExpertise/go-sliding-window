@@ -14,7 +14,7 @@ and no flow-control. This works fine as long as your
 downstream read/subscribe capacity is larger than your
 publishing rate.
 
-If your nats publisher evers produces
+If your nats publisher ever produces
 faster than your subscriber can keep up, you may overrun
 your buffers and drop messages. If your sender is local
 and replaying a disk file of traffic over nats, you are
