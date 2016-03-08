@@ -394,42 +394,60 @@ func min(a, b int64) int64 {
 	return b
 }
 
-func (s *SenderState) UpdateRTT(a *Packet) {
-	if a.KeepAlive {
-		// avoid clock skew between machines by
-		// not sampling one-way elapsed times.
+func (s *SenderState) UpdateRTT(pack *Packet) {
+	// avoid clock skew between machines by
+	// not sampling one-way elapsed times.
+	if pack.KeepAlive {
 		return
 	}
+	if !pack.AckOnly {
+		return
+	}
+	q("%v UpdateRTT top, pack = %#v", s.Inbox, pack)
+
 	// acks have roundtrip times we can measure
 	// use our own clock, thus avoiding clock
 	// skew.
 
-	obs := s.Clk.Now().Sub(a.DataSendTm)
+	obs := s.Clk.Now().Sub(pack.DataSendTm)
 
 	// exclude obvious outliers where a round trip
 	// took 60 seconds or more
 	if obs > time.Minute {
 		fmt.Printf("\n %v now: %v; UpdateRTT exluding outlier outside 60 seconds:"+
-			" a.DataSendTm = %v, observed rtt = %v.  AckStatus = '%#v'\n",
-			s.Inbox, s.Clk.Now(), a.DataSendTm, obs, a)
+			" pack.DataSendTm = %v, observed rtt = %v.  pack = '%#v'\n",
+			s.Inbox, s.Clk.Now(), pack.DataSendTm, obs, pack)
 		return
 	}
 
-	//q("%v a.DataSendTm = %v", s.Inbox, a.DataSendTm)
+	//q("%v pack.DataSendTm = %v", s.Inbox, pack.DataSendTm)
 	s.rtt.AddSample(obs)
 
-	sd := s.rtt.GetSd()
-	p("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v. sd = %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate(), sd)
+	//	sd := s.rtt.GetSd()
+	//	q("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v. sd = %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate(), sd)
 }
 
 func (s *SenderState) GetDeadline(now time.Time) time.Time {
 	if s.rtt.N < 1 {
-		return now.Add(s.Timeout)
+		return now.Add(20 * time.Millisecond)
 	}
 	// exponential moving average of observed RTT
 	ema := s.rtt.GetEstimate()
 
-	// allow 50%/some slop before consuming bandwidth for retry
-	fin := time.Duration(int64(float64(ema) * 1.5))
+	var sd time.Duration
+	if s.rtt.N > 1 {
+		sd = s.rtt.GetSd()
+	} else {
+		// default until we have 2 or more data points
+		sd = ema
+		// sanity check and cap if need be
+		if sd > 2*ema {
+			sd = 2 * ema
+		}
+	}
+
+	// allow two standard deviations of margin
+	// before consuming bandwidth for retry.
+	fin := ema + 2*sd
 	return now.Add(fin)
 }

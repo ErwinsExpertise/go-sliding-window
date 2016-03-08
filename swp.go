@@ -116,7 +116,7 @@ type Packet struct {
 	AckRetry   int64
 	AckReplyTm time.Time
 
-	AckOnly   bool
+	AckOnly   bool // identifies an Acknowledgement packet
 	KeepAlive bool
 
 	// AvailReaderByteCap and AvailReaderMsgCap are
@@ -179,7 +179,20 @@ type Session struct {
 // Swp.Start to begin the sliding-window-protocol.
 //
 // If windowByteSz is negative or less than windowMsgSz,
-// we estimate a byte size based on 10kb messages and the given windowMsgSz.
+// we estimate a byte size based on 10kb messages and
+// the given windowMsgSz.
+//
+// The timeout parameter controls how often we wake up
+// to check for packets that need to be retried.
+//
+// Packet timers (retry deadlines) are established
+// using an exponential moving average + some standard
+// deviations of the observed round-trip time of
+// Ack packets. Retries reset the DataSentTm so
+// there is never confusion as to which retry is
+// being acked. The Ack packet method is not subject
+// to two-clock skew because the same clock is used
+// for both begin and end measurements.
 //
 func NewSession(net Network,
 	localInbox string,

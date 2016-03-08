@@ -32,6 +32,12 @@ func (r *RTT) GetEstimate() time.Duration {
 // GetSd returns the standard deviation of
 // the samples seen so far.
 func (r *RTT) GetSd() time.Duration {
+	switch r.N {
+	case 0:
+		return 10 * time.Millisecond
+	case 1:
+		return time.Duration(int64(r.Est / 2))
+	}
 	return time.Duration(int64(r.Sd.Sd()[0]))
 
 }
