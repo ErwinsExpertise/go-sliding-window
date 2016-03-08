@@ -198,14 +198,14 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	B.SelfConsumeForTesting()
 
 	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
-		ReservedByteCap:     0,
-		ReservedMsgCap:      0,
+		ReservedByteCap:     64 * 1024,
+		ReservedMsgCap:      10,
 		AvailReaderBytesCap: 5000,
 		AvailReaderMsgCap:   1,
 	}}
 	A.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
-		ReservedByteCap:     0,
-		ReservedMsgCap:      0,
+		ReservedByteCap:     64 * 1024,
+		ReservedMsgCap:      10,
 		AvailReaderBytesCap: 5000,
 		AvailReaderMsgCap:   1,
 	}}

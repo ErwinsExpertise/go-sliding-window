@@ -124,7 +124,13 @@ func (r *RecvState) Start() error {
 	switch nn := r.Net.(type) {
 	case *NatsNet:
 		//q("%v receiver setting nats subscription buffer limits", r.Inbox)
-		SetSubscriptionLimits(nn.Cli.Scrip, r.RecvWindowSize, r.RecvWindowSizeBytes)
+		// NB: we have to allow somewhat *more* than than data
+		// limits to allow nats to deliver control messages such
+		// as acks and keep-alives.
+		flow := r.snd.FlowCt.GetFlow()
+		SetSubscriptionLimits(nn.Cli.Scrip,
+			r.RecvWindowSize+flow.ReservedMsgCap,
+			r.RecvWindowSizeBytes+flow.ReservedByteCap)
 	}
 	r.MsgRecv = mr
 

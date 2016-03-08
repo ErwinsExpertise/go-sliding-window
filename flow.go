@@ -15,7 +15,21 @@ type FlowCtrl struct {
 // so use the sender.FlowCt.UpdateFlow() method to safely serialize
 // access.
 type Flow struct {
-	// flow control params
+	// Control messages such as acks and keepalives
+	// should not be blocked by flow-control (for
+	// correctness/resumption from no-flow), so we need
+	// to reserve extra headroom in the nats
+	// subscription limits of this much to
+	// allow resumption of flow.
+	//
+	// These reserved headroom settings can be
+	// manually made larger before calling Start()
+	//  -- and might need to be if you are running
+	// very large windowMsgSz and/or windowByteSz; or
+	// if you have large messages. After Start()
+	// the nats buffer sizes on the subscription are
+	// fixed and ReservedByteCap and ReservedMsgCap
+	// are not consulted again.
 	ReservedByteCap int64
 	ReservedMsgCap  int64
 
@@ -59,22 +73,6 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network,
 	if availReaderBytesCap >= 0 {
 		r.flow.AvailReaderBytesCap = availReaderBytesCap
 	}
-	/*
-		// ask nats/sim for current consumption
-		// of internal client buffers.
-		blim, mlim := net.BufferCaps()
-		//p("%v UpdateFlow sees blim = %v,  mlim = %v", who, blim, mlim)
-		r.flow.AvailReaderBytesCap = blim - r.flow.ReservedByteCap
-		r.flow.AvailReaderMsgCap = mlim - r.flow.ReservedMsgCap
-
-		if r.flow.AvailReaderBytesCap < 0 {
-			r.flow.AvailReaderBytesCap = 0
-		}
-		if r.flow.AvailReaderMsgCap < 0 {
-			r.flow.AvailReaderMsgCap = 0
-		}
-		p("%v end of UpdateFlow(), FlowCtrl.flow = '%#v'  b/c blim=%v  mlim=%v", who, r.flow, blim, mlim)
-	*/
 	cp := r.flow
 	return cp
 }

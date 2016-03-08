@@ -102,13 +102,25 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// stopped state) at least this often:
 		KeepAliveInterval: 100 * time.Millisecond,
 		FlowCt: &FlowCtrl{flow: Flow{
+			// Control messages such as acks and keepalives
+			// should not be blocked by flow-control (for
+			// correctness/resumption from no-flow), so we need
+			// to reserve extra headroom in the nats
+			// subscription limits of this much to
+			// allow resumption of flow.
+			//
+			// These reserved headroom settings can be
+			// manually made larger before calling Start()
+			//  -- and might need to be if you are running
+			// very large windowMsgSz and/or windowByteSz; or
+			// if you have large messages.
 			ReservedByteCap: 64 * 1024,
 			ReservedMsgCap:  32,
 		}},
 		// don't start fast, as we could overwhelm
-		// the receiver. Instead start very slowly,
+		// the receiver. Instead start with sendSz,
 		// assuming the receiver has a slot size just
-		// like ours. Notice that we'll need to allow
+		// like sender'sx. Notice that we'll need to allow
 		// at least 2 messages in our 003 reorder test runs.
 		// LastSeenAvailReaderMsgCap will get updated
 		// after the first ack or keep alive to reflect
