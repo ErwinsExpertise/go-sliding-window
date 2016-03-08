@@ -71,9 +71,10 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	rtt := 1000 * lat
 
-	A, err := NewSession(anet, "A", "B", 3, -1, rtt, RealClk)
+	p("Sender can send 10 at once, but receiver only wants 1 at a time")
+	A, err := NewSession(anet, "A", "B", 1, -1, rtt, RealClk)
 	panicOn(err)
-	B, err := NewSession(bnet, "B", "A", 3, -1, rtt, RealClk)
+	B, err := NewSession(bnet, "B", "A", 1, -1, rtt, RealClk)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
@@ -87,24 +88,23 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	rep := ReportOnSubscription(sub.Scrip)
 	p("rep = %#v", rep)
 
-	// this limit alone is the first test for flow
-	// control, since with a 10 message limit we'll quickly
-	// overflow the client-side nats internal
-	// buffer, and panic since 	subC.AsyncErrPanics = true
-	// when trying to send 100 messages in a row.
-	msgLimit := 10
-	bytesLimit := 20000
-	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
-		ReservedByteCap: 5000,
-		ReservedMsgCap:  9,
-	}}
-	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
-
-	// msglimit 10 and reserved 10 should block
-	// all de novo sending
+	/*
+		// this limit alone is the first test for flow
+		// control, since with a 10 message limit we'll quickly
+		// overflow the client-side nats internal
+		// buffer, and panic since 	subC.AsyncErrPanics = true
+		// when trying to send 100 messages in a row.
+		msgLimit := 1
+		bytesLimit := 20000
+		B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
+			ReservedByteCap: 5000,
+			ReservedMsgCap:  0,
+		}}
+		SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
+	*/
 
 	// ===============================
-	// setup publisher to produce at 5 messages/sec
+	// setup publisher to produce
 	// ===============================
 
 	n := 100
@@ -122,9 +122,15 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	go func() {
 		seen := 0
 		for seen < n {
+			//time.Sleep(500 * time.Millisecond)
 			ios := <-B.ReadMessagesCh
-			seen += len(ios.Seq)
-			p("go read total of %v", seen)
+			got := len(ios.Seq)
+			seen += got
+			if got > 0 {
+				p("go read total of %v, the last is %v", seen, ios.Seq[got-1].SeqNum)
+			} else {
+				p("got 0 ?? : %#v", ios.Seq)
+			}
 		}
 		p("done with all reads")
 		close(readsAllDone)

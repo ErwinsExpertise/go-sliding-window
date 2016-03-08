@@ -149,8 +149,8 @@ func (s *SenderState) Start() {
 
 	sendloop:
 		for {
-			//q("%v top of sendloop, sender LAR: %v, LFS: %v \n",
-			//	s.Inbox, s.LastAckRec, s.LastFrameSent)
+			V("%v top of sendloop, sender LAR: %v, LFS: %v \n",
+				s.Inbox, s.LastAckRec, s.LastFrameSent)
 
 			// does the downstream reader have capacity to accept a send?
 			// Block any new sends if so. We do a conditional receive. Start by
@@ -168,14 +168,14 @@ func (s *SenderState) Start() {
 
 			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 &&
 				s.LastSeenAvailReaderBytesCap-bytesInflight > 0 {
-				//q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
-				//	s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
+				V("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
+					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 				acceptSend = s.BlockingSend
 			} else {
-				//q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
-				//	" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
-				//	s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
-				//	s.LastSeenAvailReaderBytesCap, bytesInflight)
+				V("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
+					" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
+					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
+					s.LastSeenAvailReaderBytesCap, bytesInflight)
 			}
 
 			q("%v top of sender select loop", s.Inbox)
