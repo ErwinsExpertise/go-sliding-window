@@ -2,6 +2,9 @@ package swp
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"runtime/pprof"
 	"time"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -9,6 +12,13 @@ import (
 )
 
 func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
+
+	f, err := os.Create("cpuprofile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
 	// Given a consumer able to read at 1k messages/sec,
 	// and a producer able to produce at 5k messages/sec,
@@ -46,7 +56,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	subC := NewNatsClientConfig(host, port, "B", "B", true, false)
 	//subC.AsyncErrPanics = true
 	sub := NewNatsClient(subC)
-	err := sub.Start()
+	err = sub.Start()
 	panicOn(err)
 	defer sub.Close()
 
@@ -69,7 +79,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	//lossProb := float64(0)
 	lat := 1 * time.Millisecond
 
-	rtt := 1000 * lat
+	rtt := 100 * lat
 
 	p("Sender can send 10 at once, but receiver only wants 1 at a time")
 	A, err := NewSession(anet, "A", "B", 1, -1, rtt, RealClk)
@@ -88,20 +98,18 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	rep := ReportOnSubscription(sub.Scrip)
 	p("rep = %#v", rep)
 
-	/*
-		// this limit alone is the first test for flow
-		// control, since with a 10 message limit we'll quickly
-		// overflow the client-side nats internal
-		// buffer, and panic since 	subC.AsyncErrPanics = true
-		// when trying to send 100 messages in a row.
-		msgLimit := 1
-		bytesLimit := 20000
-		B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
-			ReservedByteCap: 5000,
-			ReservedMsgCap:  0,
-		}}
-		SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
-	*/
+	// this limit alone is the first test for flow
+	// control, since with a 10 message limit we'll quickly
+	// overflow the client-side nats internal
+	// buffer, and panic since 	subC.AsyncErrPanics = true
+	// when trying to send 100 messages in a row.
+	msgLimit := 100
+	bytesLimit := 500000
+	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
+		ReservedByteCap: 500000,
+		ReservedMsgCap:  100,
+	}}
+	SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
 
 	// ===============================
 	// setup publisher to produce

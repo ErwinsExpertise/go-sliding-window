@@ -196,7 +196,9 @@ func (s *SenderState) Start() {
 						retry = append(retry, slot)
 					}
 				}
-				//q("%v sender retry list is len %v", s.Inbox, len(retry))
+				if len(retry) > 0 {
+					//q("%v sender retry list is len %v", s.Inbox, len(retry))
+				}
 			doRetryLoop:
 				for _, slot := range retry {
 					if slot.Pack == nil {
@@ -450,6 +452,7 @@ func (s *SenderState) GetDeadline(now time.Time) time.Time {
 	// allow two standard deviations of margin
 	// before consuming bandwidth for retry.
 	fin := ema + 2*sd
-	//q("setting deadline of duration %v", fin)
+	p("%v ema is %v", s.Inbox, ema)
+	q("setting deadline of duration %v", fin)
 	return now.Add(fin)
 }
