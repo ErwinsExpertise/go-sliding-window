@@ -452,7 +452,7 @@ func (s *SenderState) GetDeadline(now time.Time) time.Time {
 	// allow two standard deviations of margin
 	// before consuming bandwidth for retry.
 	fin := ema + 2*sd
-	p("%v ema is %v", s.Inbox, ema)
-	q("setting deadline of duration %v", fin)
+	//q("%v ema is %v", s.Inbox, ema)
+	//q("setting deadline of duration %v", fin)
 	return now.Add(fin)
 }

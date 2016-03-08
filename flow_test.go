@@ -81,9 +81,12 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	rtt := 100 * lat
 
-	p("Sender can send 10 at once, but receiver only wants 1 at a time")
-	A, err := NewSession(anet, "A", "B", 1, -1, rtt, RealClk)
+	A, err := NewSession(anet, "A", "B", 2, -1, rtt, RealClk)
 	panicOn(err)
+
+	p("receiver only wants 1 at a time")
+	// for some reason 1 at a time thrases the semaphores
+	// somewhere in the Go runtime.
 	B, err := NewSession(bnet, "B", "A", 1, -1, rtt, RealClk)
 	B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
@@ -126,19 +129,30 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 		seq[i] = pack
 	}
 
+	pushCh := make([]chan struct{}, n)
+	for i := range pushCh {
+		pushCh[i] = make(chan struct{}, 0)
+	}
+
 	readsAllDone := make(chan struct{})
+
+	p("verify flow-control: with 1 receive slot, we should see lockstep 1-by-1 ping-pong send/receives happening.")
 	go func() {
-		seen := 0
-		for seen < n {
-			//time.Sleep(500 * time.Millisecond)
-			ios := <-B.ReadMessagesCh
-			got := len(ios.Seq)
-			seen += got
-			if got > 0 {
-				p("go read total of %v, the last is %v", seen, ios.Seq[got-1].SeqNum)
-			} else {
-				p("got 0 ?? : %#v", ios.Seq)
+		for i := 0; i < n; i++ {
+			p("verify that push has be unable to race ahead;")
+			p("hence the pushCh[i+1 = %v] should not have been closed yet.", i+1)
+			if i < n-1 {
+				select {
+				case <-pushCh[i+1]:
+					panic("sender got ahead of where it should be! -- did not run in lock step respecting the flow control sequence!")
+				case <-time.After(10 * time.Millisecond):
+					// okay, push didn't race ahead
+				}
 			}
+			<-B.ReadMessagesCh
+			p("receive done at i = %v", i)
+			// this will have freed up the next push.
+			<-pushCh[i] // make sure we get to push i, but not push i+1
 		}
 		p("done with all reads")
 		close(readsAllDone)
@@ -147,6 +161,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	for i := range seq {
 		A.Push(seq[i])
 		p("push i=%v done", i)
+		close(pushCh[i])
 	}
 	<-readsAllDone
 

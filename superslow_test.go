@@ -1,5 +1,8 @@
 package swp
 
+// huge semaphore thrashing test: 17 seconds to finish.
+/*
+
 import (
 	"fmt"
 	"log"
@@ -11,8 +14,6 @@ import (
 	"testing"
 )
 
-// huge semaphore thrashing test: 17 seconds to finish.
-/*
 func Test108ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	f, err := os.Create("cpuprofile")
