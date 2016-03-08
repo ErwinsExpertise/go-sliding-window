@@ -78,7 +78,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
-	B.SelfConsumeForTesting()
+	//B.SelfConsumeForTesting()
 
 	// ===============================
 	// setup subscriber to consume at 1 message/sec
@@ -118,11 +118,23 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 		seq[i] = pack
 	}
 
+	readsAllDone := make(chan struct{})
+	go func() {
+		seen := 0
+		for seen < n {
+			ios := <-B.ReadMessagesCh
+			seen += len(ios.Seq)
+			p("go read total of %v", seen)
+		}
+		p("done with all reads")
+		close(readsAllDone)
+	}()
+
 	for i := range seq {
 		A.Push(seq[i])
+		p("push i=%v done", i)
 	}
-
-	time.Sleep(1000 * time.Millisecond)
+	<-readsAllDone
 
 	A.Stop()
 	B.Stop()

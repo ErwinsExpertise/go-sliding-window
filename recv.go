@@ -169,7 +169,7 @@ func (r *RecvState) Start() error {
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
-				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				//p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// test instrumentation, used e.g. in clock_test.go
 				if r.testing != nil && r.testing.incrementClockOnReceive {
 					r.Clk.(*SimClock).Advance(time.Second)

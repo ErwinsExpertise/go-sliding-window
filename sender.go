@@ -168,14 +168,14 @@ func (s *SenderState) Start() {
 
 			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 &&
 				s.LastSeenAvailReaderBytesCap-bytesInflight > 0 {
-				q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
-					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
+				//q("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
+				//	s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 				acceptSend = s.BlockingSend
 			} else {
-				q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
-					" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
-					s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
-					s.LastSeenAvailReaderBytesCap, bytesInflight)
+				//q("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
+				//	" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
+				//	s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight,
+				//	s.LastSeenAvailReaderBytesCap, bytesInflight)
 			}
 
 			q("%v top of sender select loop", s.Inbox)
@@ -196,6 +196,7 @@ func (s *SenderState) Start() {
 						retry = append(retry, slot)
 					}
 				}
+				//q("%v sender retry list is len %v", s.Inbox, len(retry))
 			doRetryLoop:
 				for _, slot := range retry {
 					if slot.Pack == nil {
@@ -222,8 +223,8 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
-					q("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
-						s.Inbox, slot.Pack, string(slot.Pack.Data))
+					//q("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
+					//	s.Inbox, slot.Pack, string(slot.Pack.Data))
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
@@ -449,5 +450,6 @@ func (s *SenderState) GetDeadline(now time.Time) time.Time {
 	// allow two standard deviations of margin
 	// before consuming bandwidth for retry.
 	fin := ema + 2*sd
+	//q("setting deadline of duration %v", fin)
 	return now.Add(fin)
 }
