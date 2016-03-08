@@ -97,6 +97,10 @@ flow-control required to avoid client-buffer overrun.
 This can be used in tandem with the main always-ordered-and-lossless
 API if so desired.
 
+### API documentation
+
+[Docs: https://godoc.org/github.com/glycerine/go-sliding-window](https://godoc.org/github.com/glycerine/go-sliding-window)
+
 ## notes
 
 An implementation of the sliding window protocol (SWP) in Go.
