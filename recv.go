@@ -208,6 +208,7 @@ func (r *RecvState) Start() error {
 				// stuff has changed, so update
 				r.UpdateFlowControl(pack)
 				// and tell snd about the new flow-control info
+				/* switch to copy of pack instead of AckStatus
 				as := AckStatus{
 					AckOnly:             pack.AckOnly,
 					KeepAlive:           pack.KeepAlive,
@@ -219,9 +220,11 @@ func (r *RecvState) Start() error {
 					AvailReaderBytesCap: pack.AvailReaderBytesCap,
 					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
 				}
+				*/
 				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
+				cp := CopyPacketSansData(pack)
 				select {
-				case r.snd.GotAck <- as:
+				case r.snd.GotAck <- cp:
 				case <-r.ReqStop:
 					close(r.Done)
 					return
@@ -384,4 +387,10 @@ func (r *RecvState) testModeOn() {
 type testCfg struct {
 	ackCb                   ackCallbackFunc
 	incrementClockOnReceive bool
+}
+
+func CopyPacketSansData(p *Packet) *Packet {
+	cp := *p
+	cp.Data = nil
+	return &cp
 }

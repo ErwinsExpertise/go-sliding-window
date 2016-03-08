@@ -13,6 +13,7 @@ type TxqSlot struct {
 	Pack          *Packet
 }
 
+/*
 // AckStatus conveys info from the receiver to the sender when an Ack is received.
 type AckStatus struct {
 	AckOnly             bool
@@ -25,6 +26,7 @@ type AckStatus struct {
 	AvailReaderBytesCap int64 // for sender throttling/flow-control
 	AvailReaderMsgCap   int64 // for sender throttling/flow-control
 }
+*/
 
 // SenderState tracks the sender's sliding window state.
 // To avoid circular deadlocks, the SenderState never talks
@@ -45,7 +47,7 @@ type SenderState struct {
 	// the main goroutine safe way to request
 	// sending a packet:
 	BlockingSend chan *Packet
-	GotAck       chan AckStatus
+	GotAck       chan *Packet
 
 	ReqStop      chan bool
 	Done         chan bool
@@ -92,7 +94,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SendHistory:      make([]*Packet, 0),
 		BlockingSend:     make(chan *Packet),
 		SendSz:           sendSz,
-		GotAck:           make(chan AckStatus),
+		GotAck:           make(chan *Packet),
 		SendAck:          make(chan *Packet),
 		SentButNotAcked:  make(map[int64]*TxqSlot),
 
@@ -248,7 +250,7 @@ func (s *SenderState) Start() {
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
 
-				s.UpdateRTT(&a)
+				s.UpdateRTT(a)
 
 				// need to update our map of SentButNotAcked
 				// and remove everything before AckNum, which is cumulative.
@@ -392,7 +394,7 @@ func min(a, b int64) int64 {
 	return b
 }
 
-func (s *SenderState) UpdateRTT(a *AckStatus) {
+func (s *SenderState) UpdateRTT(a *Packet) {
 	if a.KeepAlive {
 		// avoid clock skew between machines by
 		// not sampling one-way elapsed times.
@@ -407,13 +409,17 @@ func (s *SenderState) UpdateRTT(a *AckStatus) {
 	// exclude obvious outliers where a round trip
 	// took 60 seconds or more
 	if obs > time.Minute {
-		p("%v UpdateRTT exluding outlier outside 60 seconds: a.DataSendTm = %v", s.Inbox, a.DataSendTm)
+		fmt.Printf("\n %v now: %v; UpdateRTT exluding outlier outside 60 seconds:"+
+			" a.DataSendTm = %v, observed rtt = %v.  AckStatus = '%#v'\n",
+			s.Inbox, s.Clk.Now(), a.DataSendTm, obs, a)
 		return
 	}
 
 	//q("%v a.DataSendTm = %v", s.Inbox, a.DataSendTm)
 	s.rtt.AddSample(obs)
-	//q("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate())
+
+	sd := s.rtt.GetSd()
+	p("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v. sd = %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate(), sd)
 }
 
 func (s *SenderState) GetDeadline(now time.Time) time.Time {
