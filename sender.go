@@ -107,10 +107,15 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		}},
 		// don't start fast, as we could overwhelm
 		// the receiver. Instead start very slowly,
-		// allowing 2 messages so our 003 reorder test runs.
-		// It will get updated after the first ack
-		// or keep alive.
-		LastSeenAvailReaderMsgCap:   2,
+		// assuming the receiver has a slot size just
+		// like ours. Notice that we'll need to allow
+		// at least 2 messages in our 003 reorder test runs.
+		// LastSeenAvailReaderMsgCap will get updated
+		// after the first ack or keep alive to reflect
+		// the actual receiver capacity. This is just
+		// an inital value to use before we've heard from
+		// the actual receiver over network.
+		LastSeenAvailReaderMsgCap:   sendSz,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
 		rtt: NewRTT(),
 	}

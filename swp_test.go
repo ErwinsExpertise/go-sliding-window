@@ -101,7 +101,11 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 
 	p("effectively turning off replays for this test")
 	rtt = time.Hour
-	A, err := NewSession(net, "A", "B", 3, -1, rtt, RealClk)
+	// windowMsgSz must be at least two here in order for
+	// the re-order to actually happen; else the test will
+	// (and should) hang.
+	windowMsgSz := int64(2)
+	A, err := NewSession(net, "A", "B", windowMsgSz, -1, rtt, RealClk)
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, -1, rtt, RealClk)
 	panicOn(err)
