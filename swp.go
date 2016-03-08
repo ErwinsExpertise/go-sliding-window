@@ -76,6 +76,11 @@ type Packet struct {
 	From string
 	Dest string
 
+	// ArrivedAtDestTm is timestamped by
+	// the receiver immediately when the
+	// packet arrives at the Dest receiver.
+	ArrivedAtDestTm time.Time
+
 	// DataSendTm is stamped anew on each data send and retry
 	// from the sender. Acks by the receiver are
 	// stamped with the AckReplyTm field, and DataSendTm

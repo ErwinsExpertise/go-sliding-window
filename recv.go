@@ -170,13 +170,16 @@ func (r *RecvState) Start() error {
 				return
 			case pack := <-r.MsgRecv:
 				q("%v recvloop sees packet '%#v'", r.Inbox, pack)
-
 				// test instrumentation, used e.g. in clock_test.go
 				if r.testing != nil && r.testing.incrementClockOnReceive {
 					r.Clk.(*SimClock).Advance(time.Second)
-					if r.testing.ackCb != nil {
-						r.testing.ackCb(pack)
-					}
+				}
+
+				now := r.Clk.Now()
+				pack.ArrivedAtDestTm = now
+
+				if r.testing != nil && r.testing.ackCb != nil {
+					r.testing.ackCb(pack)
 				}
 
 				// tell any ASAP clients about it
