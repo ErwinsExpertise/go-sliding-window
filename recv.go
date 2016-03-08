@@ -121,6 +121,11 @@ func (r *RecvState) Start() error {
 	if err != nil {
 		return err
 	}
+	switch nn := r.Net.(type) {
+	case *NatsNet:
+		//q("%v receiver setting nats subscription buffer limits", r.Inbox)
+		SetSubscriptionLimits(nn.Cli.Scrip, r.RecvWindowSize, r.RecvWindowSizeBytes)
+	}
 	r.MsgRecv = mr
 
 	var deliverToConsumer chan InOrderSeq

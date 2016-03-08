@@ -106,8 +106,8 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// overflow the client-side nats internal
 	// buffer, and panic since 	subC.AsyncErrPanics = true
 	// when trying to send 100 messages in a row.
-	msgLimit := 100
-	bytesLimit := 500000
+	msgLimit := int64(100)
+	bytesLimit := int64(500000)
 	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
 		ReservedByteCap: 500000,
 		ReservedMsgCap:  100,
