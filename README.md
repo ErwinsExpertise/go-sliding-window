@@ -63,7 +63,9 @@ Per Peterson and Davie, the SWP has three benefits:
 
 ### status
 
-Working and useful. The library was test-driven and features a network simulator that simulates packet reordering, duplication, and loss. We pass tests with 20% packet loss easily, and we pass tests for lock-step flow control down to one message only in-flight at a time (just as a verification of flow control; do not actually run this way in production if you want performance and/or packet-reordering support!). The library is ready, usable, and quite useful.
+Working and useful. The library was test-driven and features a network simulator that simulates packet reordering, duplication, and loss. We pass tests with 20% packet loss easily, and we pass tests for lock-step flow control down to one message only in-flight at a time (just as a verification of flow control; do not actually run this way in production if you want performance and/or packet-reordering support!). Round-trip time estimation and smoothing from the observed data-to-ack round trips has been implemented to set retry-deadlines, similar to how TCP operates.
+
+In short, the library is ready, working, and quite useful.
 
 ### next steps
 
