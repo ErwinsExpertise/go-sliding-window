@@ -180,7 +180,9 @@ type Session struct {
 //
 // If windowByteSz is negative or less than windowMsgSz,
 // we estimate a byte size based on 10kb messages and
-// the given windowMsgSz.
+// the given windowMsgSz. It is much better to give the
+// aggregate byte limit you want specifically. Negative
+// windowByteSz is merely a convenience for writing tests.
 //
 // The timeout parameter controls how often we wake up
 // to check for packets that need to be retried.
