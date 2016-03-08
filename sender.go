@@ -71,6 +71,7 @@ type SenderState struct {
 	// and UpdateFlow(s.Net)
 	FlowCt         *FlowCtrl
 	TotalBytesSent int64
+	rtt            *RTT
 }
 
 // NewSenderState constructs a new SenderState struct.
@@ -109,6 +110,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// or keep alive.
 		LastSeenAvailReaderMsgCap:   2,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
+		rtt: NewRTT(),
 	}
 	for i := range s.Txq {
 		s.Txq[i] = &TxqSlot{}
@@ -211,7 +213,7 @@ func (s *SenderState) Start() {
 
 					// reset deadline and resend
 					now := s.Clk.Now()
-					slot.RetryDeadline = now.Add(s.Timeout)
+					slot.RetryDeadline = s.GetDeadline(now)
 					slot.Pack.SeqRetry++
 					slot.Pack.DataSendTm = now
 
@@ -340,7 +342,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	now := s.Clk.Now()
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.OrigSendTime = now
-	slot.RetryDeadline = now.Add(s.Timeout)
+	slot.RetryDeadline = s.GetDeadline(now)
 	s.LastSendTime = now
 
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
@@ -391,6 +393,37 @@ func min(a, b int64) int64 {
 }
 
 func (s *SenderState) UpdateRTT(a *AckStatus) {
-	// a.AckNum, a.AckRetry ->
+	if a.KeepAlive {
+		// avoid clock skew between machines by
+		// not sampling one-way elapsed times.
+		return
+	}
+	// acks have roundtrip times we can measure
+	// use our own clock, thus avoiding clock
+	// skew.
 
+	obs := s.Clk.Now().Sub(a.DataSendTm)
+
+	// exclude obvious outliers where a round trip
+	// took 60 seconds or more
+	if obs > time.Minute {
+		p("%v UpdateRTT exluding outlier outside 60 seconds: a.DataSendTm = %v", s.Inbox, a.DataSendTm)
+		return
+	}
+
+	//q("%v a.DataSendTm = %v", s.Inbox, a.DataSendTm)
+	s.rtt.AddSample(obs)
+	//q("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate())
+}
+
+func (s *SenderState) GetDeadline(now time.Time) time.Time {
+	if s.rtt.N < 1 {
+		return now.Add(s.Timeout)
+	}
+	// exponential moving average of observed RTT
+	ema := s.rtt.GetEstimate()
+
+	// allow 50%/some slop before consuming bandwidth for retry
+	fin := time.Duration(int64(float64(ema) * 1.5))
+	return now.Add(fin)
 }

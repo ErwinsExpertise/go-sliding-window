@@ -67,10 +67,6 @@ Per Peterson and Davie, the SWP has three benefits:
 
 The library was test-driven and features a network simulator that simulates packet reordering, duplication, and loss. We pass tests with 20% packet loss easily. The library is usable now, but see the todo below. Also the network simulator could be improved by adding a chaos monkey mode that is even more aggressive about re-ordering and duplicating packets.
 
-### todo
-
-Optimal bandwidth allocation (when to timeout and retry) requires good estimates of the actual round-trip time between endpoints A and B in a Session, which may not be known in advance and may evolve over time. Currently this is just a user supplied parameter when creating a Session, and no exponential back-off is used. To make a session more convenient to configure however, we do plan to implement the [Jacobson/Karels algorithm for RTT estimation](https://en.wikipedia.org/wiki/TCP_congestion-avoidance_algorithm) in the near future (p304 of Peterson and Davie).
-
 ### credits
 
 Author: Jason E. Aten, Ph.D.

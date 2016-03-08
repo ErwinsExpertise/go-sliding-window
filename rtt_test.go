@@ -1,6 +1,7 @@
 package swp
 
 import (
+	"math"
 	"time"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -67,4 +68,23 @@ func Test011RTTfromPackets(t *testing.T) {
 	A.Stop()
 	B.Stop()
 
+}
+
+func Test012RTTestimation(t *testing.T) {
+	samples := []int64{93, 8, 12, 41, 73, 32, 0, 71, 22, 84, 89, 130, 60, 39, 19, 183, 6, 117, 2, 166, 50, 60, 25, 20, 22, 67, 103, 42, 22, 96, 27, 22, 60, 84, 7, 10, 18, 248, 60, 33, 143, 55, 14, 183, 94, 67, 42, 9, 262, 279, 232, 127, 73, 30, 32, 172, 65, 29, 80, 258, 45, 26, 147, 89, 3, 166, 101, 152, 103, 39, 91, 26, 44, 282, 51, 67, 24, 127, 30, 239, 202, 128, 16, 8, 131, 26, 115, 1, 44, 81, 152, 19, 94, 12, 266, 51, 115, 72, 19, 128}
+
+	expected := []float64{93.00000, 84.50000, 77.25000, 73.62500, 73.56250, 69.40625, 62.46563, 63.31906, 59.18716, 61.66844, 64.40160, 70.96144}
+
+	rtt := NewRTT()
+	cv.Convey("Given alpha=0.1 and single exponential smoothing, our RTT algorithm should produce values matching those manually computed in R", t, func() {
+		for i := range expected {
+			ex := expected[i]
+			rtt.AddSample(time.Duration(samples[i] * 1e9))
+			obs := rtt.GetEstimate()
+			diff := math.Abs(float64(obs) - ex*1e9)
+
+			//p("obs = %v, ex = %v, diff=%v", float64(int64(obs)), ex*1e9, diff)
+			cv.So(diff, cv.ShouldBeLessThan, 1e6) // 1e6 => 3 decimal places must agree
+		}
+	})
 }

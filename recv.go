@@ -246,9 +246,13 @@ func (r *RecvState) Start() error {
 						// presence of packet loss, if we drop certain packets,
 						// the sender may re-try forever if we have non-overlapping windows.
 						// So we'll ack out of bounds known good values anyway.
-						// We could also do every 5th discard, but we want to get
+						// We could also do every K-th discard, but we want to get
 						// the flow control ramp-up-from-zero correct and not acking
 						// may inhibit that.
+						//
+						// Notice that UDT went to time-based acks; acking only every k milliseconds.
+						// We may wish to experiment with that.
+						//
 						//q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
 						//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
 						//	r.NextFrameExpected+r.RecvWindowSize-1)
