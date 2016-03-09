@@ -2,6 +2,7 @@ package swp
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -224,11 +225,11 @@ func (s *SenderState) Start() {
 
 					// reset deadline and resend
 					now := s.Clk.Now()
-					slot.RetryDeadline = s.GetDeadline(now)
+					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
+					slot.RetryDeadline = s.GetDeadline(now, flow)
 					slot.Pack.SeqRetry++
 					slot.Pack.DataSendTm = now
 
-					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 					slot.Pack.FromRttEstNsec = int64(s.rtt.GetEstimate())
@@ -360,10 +361,11 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	now := s.Clk.Now()
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.OrigSendTime = now
-	slot.RetryDeadline = s.GetDeadline(now)
-	s.LastSendTime = now
 
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
+	slot.RetryDeadline = s.GetDeadline(now, flow)
+	s.LastSendTime = now
+
 	//q("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
@@ -453,23 +455,65 @@ func (s *SenderState) UpdateRTT(pack *Packet) {
 	//	q("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v. sd = %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate(), sd)
 }
 
-func (s *SenderState) GetDeadline(now time.Time) time.Time {
-	if s.rtt.N < 1 {
-		return now.Add(20 * time.Millisecond)
-	}
-	// exponential moving average of observed RTT
-	ema := s.rtt.GetEstimate()
-
+// GetDeadline sets the receive deadline using a
+// weighted average of our observed RTT info and the remote
+// end's observed RTT info.
+func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
+	var ema time.Duration
 	var sd time.Duration
-	if s.rtt.N > 1 {
-		sd = s.rtt.GetSd()
-	} else {
-		// default until we have 2 or more data points
-		sd = ema
-		// sanity check and cap if need be
-		if sd > 2*ema {
-			sd = 2 * ema
+	var n int64 = s.rtt.N
+
+	if s.rtt.N < 1 {
+		if flow.RemoteRttN > 2 {
+			ema = time.Duration(flow.RemoteRttEstNsec)
+			sd = time.Duration(flow.RemoteRttSdNsec)
 		}
+		// nobody has good info, just guess.
+		return now.Add(20 * time.Millisecond)
+	} else {
+		// we have at least one local round-trip sample
+
+		// exponential moving average of observed RTT
+		ema = s.rtt.GetEstimate()
+
+		if s.rtt.N > 1 {
+			sd = s.rtt.GetSd()
+		} else {
+			// default until we have 2 or more data points
+			sd = ema
+			// sanity check and cap if need be
+			if sd > 2*ema {
+				sd = 2 * ema
+			}
+		}
+	}
+
+	// blend local and remote info, in a weighted average.
+	if flow.RemoteRttN > 2 && s.rtt.N > 2 {
+
+		// Satterthwaite appoximation
+		sd1 := float64(sd)
+		var1 := sd1 * sd1
+		n1 := float64(n)
+		sd2 := float64(flow.RemoteRttSdNsec)
+		var2 := sd2 * sd2
+		n2 := float64(flow.RemoteRttN)
+		SathSd := math.Sqrt((var1 / n1) + (var2 / n2))
+		newSd := time.Duration(int64(SathSd))
+
+		// variance weighted RTT estimate
+		rtt1 := float64(ema)
+		rtt2 := float64(flow.RemoteRttEstNsec)
+		invvar1 := 1 / var1
+		invvar2 := 1 / var2
+		newEma := time.Duration(int64((rtt1*invvar1 + rtt2*invvar2) / (invvar1 + invvar2)))
+
+		// update:
+		//p("RTTema1=%v  n1=%v  sd1=%v    RTTemaRemote=%v  nRemote=%v  sdRemote=%v", rtt1, n1, sd1, rtt2, n2, sd2)
+		//p("weighted average ema : %v -> %v", ema, newEma)
+		//p("weighted average sd  : %v -> %v", sd, newSd)
+		sd = newSd
+		ema = newEma
 	}
 
 	// allow two standard deviations of margin

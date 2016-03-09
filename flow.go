@@ -41,17 +41,18 @@ type Flow struct {
 	AvailReaderMsgCap   int64
 
 	// Estimate of the round-trip-time from
-	// the senders point of view. In nanoseconds.
-	FromRttEstNsec int64
+	// the remote-end point of view. In nanoseconds.
+	RemoteRttEstNsec int64
 
 	// Estimate of the standard deviation of
-	// the round-trip-time from the senders
+	// the round-trip-time from the remote-end
 	// point of view. In nanoseconds.
-	FromRttSdNsec int64
+	RemoteRttSdNsec int64
 
-	// number of RTT observations in the From RTT
-	// estimates above, also avoids double counting.
-	FromRttN int64
+	// The number of RTT observations in the RemoteRtt
+	// estimates above, also avoids double counting
+	// by acting like a (possibly gappy) sequence number.
+	RemoteRttN int64
 }
 
 // GetFlow atomically returns a copy
@@ -71,7 +72,7 @@ func (r *FlowCtrl) GetFlow() Flow {
 // It returns the latest
 // info in the Flow structure.
 //
-// Updates r.flow.FromRttEstNsec from pack,
+// Updates r.flow.RemoteRttEstNsec from pack,
 // since if pack is non-nil, it is coming from
 // the receiver.
 //
@@ -90,10 +91,10 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network,
 	if availReaderBytesCap >= 0 {
 		r.flow.AvailReaderBytesCap = availReaderBytesCap
 	}
-	if pack != nil && pack.FromRttN > r.flow.FromRttN {
-		r.flow.FromRttEstNsec = pack.FromRttEstNsec
-		r.flow.FromRttSdNsec = pack.FromRttSdNsec
-		r.flow.FromRttN = pack.FromRttN
+	if pack != nil && pack.FromRttN > r.flow.RemoteRttN {
+		r.flow.RemoteRttEstNsec = pack.FromRttEstNsec
+		r.flow.RemoteRttSdNsec = pack.FromRttSdNsec
+		r.flow.RemoteRttN = pack.FromRttN
 	}
 	cp := r.flow
 	return cp
