@@ -467,9 +467,10 @@ func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
 		if flow.RemoteRttN > 2 {
 			ema = time.Duration(flow.RemoteRttEstNsec)
 			sd = time.Duration(flow.RemoteRttSdNsec)
+		} else {
+			// nobody has good info, just guess.
+			return now.Add(20 * time.Millisecond)
 		}
-		// nobody has good info, just guess.
-		return now.Add(20 * time.Millisecond)
 	} else {
 		// we have at least one local round-trip sample
 
