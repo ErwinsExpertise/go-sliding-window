@@ -71,6 +71,10 @@ func (r *FlowCtrl) GetFlow() Flow {
 // It returns the latest
 // info in the Flow structure.
 //
+// Updates r.flow.FromRttEstNsec from pack,
+// since if pack is non-nil, it is coming from
+// the receiver.
+//
 // NB: availReaderMsgCap is ignored if < 0, so
 // use -1 to indicate no update (just query existing values).
 // Same with availReaderBytesCap.
