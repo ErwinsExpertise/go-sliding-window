@@ -197,7 +197,7 @@ func (r *RecvState) Start() error {
 				if r.AsapOn && r.asapHelper != nil {
 					select {
 					case r.asapHelper.enqueue <- pack:
-					case <-time.After(300 * time.Millisecond):
+					case <-time.After(100 * time.Millisecond):
 						// drop packet
 					case <-r.ReqStop:
 						close(r.Done)
@@ -217,21 +217,8 @@ func (r *RecvState) Start() error {
 				}
 
 				// stuff has changed, so update
-				r.UpdateFlowControl(pack)
+				r.UpdateControl(pack)
 				// and tell snd about the new flow-control info
-				/* switch to copy of pack instead of AckStatus
-				as := AckStatus{
-					AckOnly:             pack.AckOnly,
-					KeepAlive:           pack.KeepAlive,
-					AckNum:              pack.AckNum,
-					AckRetry:            pack.AckRetry,
-					AckCameWithPacket:   pack.SeqNum,
-					DataSendTm:          pack.DataSendTm,
-					AckReplyTm:          pack.AckReplyTm,
-					AvailReaderBytesCap: pack.AvailReaderBytesCap,
-					AvailReaderMsgCap:   pack.AvailReaderMsgCap,
-				}
-				*/
 				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
 				cp := CopyPacketSansData(pack)
 				select {
@@ -317,7 +304,11 @@ func (r *RecvState) Start() error {
 // status, and tells the sender about this
 // indirectly with an r.snd.FlowCt.UpdateFlow()
 // update.
-func (r *RecvState) UpdateFlowControl(pack *Packet) {
+//
+// Called with each pack that RecvState
+// receives, which is passed to UpdateFlow().
+//
+func (r *RecvState) UpdateControl(pack *Packet) {
 	begVal := r.LastAvailReaderMsgCap
 
 	// just like TCP flow control, where
@@ -334,7 +325,7 @@ func (r *RecvState) UpdateFlowControl(pack *Packet) {
 // ack is a helper function, used in the recvloop above.
 // Currently seqno is always r.NextFrameExpected-1
 func (r *RecvState) ack(seqno int64, pack *Packet) {
-	r.UpdateFlowControl(pack)
+	r.UpdateControl(pack)
 	//q("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)
 	// send ack

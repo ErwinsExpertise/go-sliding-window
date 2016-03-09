@@ -39,6 +39,19 @@ type Flow struct {
 	// up to date as conditions change.
 	AvailReaderBytesCap int64
 	AvailReaderMsgCap   int64
+
+	// Estimate of the round-trip-time from
+	// the senders point of view. In nanoseconds.
+	FromRttEstNsec int64
+
+	// Estimate of the standard deviation of
+	// the round-trip-time from the senders
+	// point of view. In nanoseconds.
+	FromRttSdNsec int64
+
+	// number of RTT observations in the From RTT
+	// estimates above, also avoids double counting.
+	FromRttN int64
 }
 
 // GetFlow atomically returns a copy
@@ -72,6 +85,11 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network,
 	}
 	if availReaderBytesCap >= 0 {
 		r.flow.AvailReaderBytesCap = availReaderBytesCap
+	}
+	if pack != nil && pack.FromRttN > r.flow.FromRttN {
+		r.flow.FromRttEstNsec = pack.FromRttEstNsec
+		r.flow.FromRttSdNsec = pack.FromRttSdNsec
+		r.flow.FromRttN = pack.FromRttN
 	}
 	cp := r.flow
 	return cp

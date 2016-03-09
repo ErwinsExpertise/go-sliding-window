@@ -13,25 +13,14 @@ type TxqSlot struct {
 	Pack          *Packet
 }
 
-/*
-// AckStatus conveys info from the receiver to the sender when an Ack is received.
-type AckStatus struct {
-	AckOnly             bool
-	KeepAlive           bool
-	AckNum              int64
-	AckRetry            int64
-	AckCameWithPacket   int64
-	DataSendTm          time.Time
-	AckReplyTm          time.Time
-	AvailReaderBytesCap int64 // for sender throttling/flow-control
-	AvailReaderMsgCap   int64 // for sender throttling/flow-control
-}
-*/
-
 // SenderState tracks the sender's sliding window state.
 // To avoid circular deadlocks, the SenderState never talks
 // directly to the RecvState. The RecvState will
 // tell the Sender stuff on GotAck.
+//
+// Acks, retries, keep-alives, and original-data: these
+// are the four types of sends we do.
+//
 type SenderState struct {
 	Clk              Clock
 	Net              Network
@@ -242,6 +231,10 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
+					slot.Pack.FromRttEstNsec = int64(s.rtt.GetEstimate())
+					slot.Pack.FromRttSdNsec = int64(s.rtt.GetSd())
+					slot.Pack.FromRttN = s.rtt.N
+
 					//q("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
 					//	s.Inbox, slot.Pack, string(slot.Pack.Data))
 					err := s.Net.Send(slot.Pack, "retry")
@@ -317,8 +310,11 @@ func (s *SenderState) Start() {
 				// request to send an ack:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				q("%v doing Net.Send() SendAck request on ackPack: '%#v'",
+				q("%v doing ack Net.Send() SendAck request on ackPack: '%#v'",
 					s.Inbox, ackPack)
+				ackPack.FromRttEstNsec = int64(s.rtt.GetEstimate())
+				ackPack.FromRttSdNsec = int64(s.rtt.GetSd())
+				ackPack.FromRttN = s.rtt.N
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				panicOn(err)
 			}
@@ -372,7 +368,13 @@ func (s *SenderState) doOrigDataSend(pack *Packet) {
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	pack.DataSendTm = now
-	err := s.Net.Send(slot.Pack, fmt.Sprintf("doSend() for %v", s.Inbox))
+
+	// tell Dest about our RTT estimate.
+	pack.FromRttEstNsec = int64(s.rtt.GetEstimate())
+	pack.FromRttSdNsec = int64(s.rtt.GetSd())
+	pack.FromRttN = s.rtt.N
+
+	err := s.Net.Send(slot.Pack, fmt.Sprintf("doOrigDataSend() for %v", s.Inbox))
 	panicOn(err)
 }
 
@@ -399,6 +401,10 @@ func (s *SenderState) doKeepAlive() {
 		KeepAlive:           true,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
+
+		FromRttEstNsec: int64(s.rtt.GetEstimate()),
+		FromRttSdNsec:  int64(s.rtt.GetSd()),
+		FromRttN:       s.rtt.N,
 	}
 	//q("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))

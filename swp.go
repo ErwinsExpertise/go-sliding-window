@@ -126,6 +126,21 @@ type Packet struct {
 	AvailReaderBytesCap int64
 	AvailReaderMsgCap   int64
 
+	// Estimate of the round-trip-time (RTT) from
+	// the senders point of view. In nanoseconds.
+	// Allows mostly passive recievers to have
+	// an accurate view of the end-to-end RTT.
+	FromRttEstNsec int64
+
+	// Estimate of the standard deviation of
+	// the round-trip-time from the senders
+	// point of view. In nanoseconds.
+	FromRttSdNsec int64
+
+	// number of RTT observations in the From RTT
+	// estimates above, also avoids double counting.
+	FromRttN int64
+
 	// CumulBytesTransmitted should give the total accumulated
 	// count of bytes ever transmitted on this session
 	// from `From` to `Dest`.

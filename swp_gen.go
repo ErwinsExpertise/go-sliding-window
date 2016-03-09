@@ -34,6 +34,11 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 			if err != nil {
 				return
 			}
+		case "ArrivedAtDestTm":
+			z.ArrivedAtDestTm, err = dc.ReadTime()
+			if err != nil {
+				return
+			}
 		case "DataSendTm":
 			z.DataSendTm, err = dc.ReadTime()
 			if err != nil {
@@ -84,6 +89,21 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 			if err != nil {
 				return
 			}
+		case "FromRttEstNsec":
+			z.FromRttEstNsec, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
+		case "FromRttSdNsec":
+			z.FromRttSdNsec, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
+		case "FromRttN":
+			z.FromRttN, err = dc.ReadInt64()
+			if err != nil {
+				return
+			}
 		case "CumulBytesTransmitted":
 			z.CumulBytesTransmitted, err = dc.ReadInt64()
 			if err != nil {
@@ -106,9 +126,9 @@ func (z *Packet) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 14
+	// map header, size 18
 	// write "From"
-	err = en.Append(0x8e, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	err = en.Append(0xde, 0x0, 0x12, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
 	if err != nil {
 		return err
 	}
@@ -122,6 +142,15 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 		return err
 	}
 	err = en.WriteString(z.Dest)
+	if err != nil {
+		return
+	}
+	// write "ArrivedAtDestTm"
+	err = en.Append(0xaf, 0x41, 0x72, 0x72, 0x69, 0x76, 0x65, 0x64, 0x41, 0x74, 0x44, 0x65, 0x73, 0x74, 0x54, 0x6d)
+	if err != nil {
+		return err
+	}
+	err = en.WriteTime(z.ArrivedAtDestTm)
 	if err != nil {
 		return
 	}
@@ -215,6 +244,33 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
+	// write "FromRttEstNsec"
+	err = en.Append(0xae, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x45, 0x73, 0x74, 0x4e, 0x73, 0x65, 0x63)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt64(z.FromRttEstNsec)
+	if err != nil {
+		return
+	}
+	// write "FromRttSdNsec"
+	err = en.Append(0xad, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x53, 0x64, 0x4e, 0x73, 0x65, 0x63)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt64(z.FromRttSdNsec)
+	if err != nil {
+		return
+	}
+	// write "FromRttN"
+	err = en.Append(0xa8, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x4e)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt64(z.FromRttN)
+	if err != nil {
+		return
+	}
 	// write "CumulBytesTransmitted"
 	err = en.Append(0xb5, 0x43, 0x75, 0x6d, 0x75, 0x6c, 0x42, 0x79, 0x74, 0x65, 0x73, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x6d, 0x69, 0x74, 0x74, 0x65, 0x64)
 	if err != nil {
@@ -239,13 +295,16 @@ func (z *Packet) EncodeMsg(en *msgp.Writer) (err error) {
 // MarshalMsg implements msgp.Marshaler
 func (z *Packet) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 14
+	// map header, size 18
 	// string "From"
-	o = append(o, 0x8e, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
+	o = append(o, 0xde, 0x0, 0x12, 0xa4, 0x46, 0x72, 0x6f, 0x6d)
 	o = msgp.AppendString(o, z.From)
 	// string "Dest"
 	o = append(o, 0xa4, 0x44, 0x65, 0x73, 0x74)
 	o = msgp.AppendString(o, z.Dest)
+	// string "ArrivedAtDestTm"
+	o = append(o, 0xaf, 0x41, 0x72, 0x72, 0x69, 0x76, 0x65, 0x64, 0x41, 0x74, 0x44, 0x65, 0x73, 0x74, 0x54, 0x6d)
+	o = msgp.AppendTime(o, z.ArrivedAtDestTm)
 	// string "DataSendTm"
 	o = append(o, 0xaa, 0x44, 0x61, 0x74, 0x61, 0x53, 0x65, 0x6e, 0x64, 0x54, 0x6d)
 	o = msgp.AppendTime(o, z.DataSendTm)
@@ -276,6 +335,15 @@ func (z *Packet) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "AvailReaderMsgCap"
 	o = append(o, 0xb1, 0x41, 0x76, 0x61, 0x69, 0x6c, 0x52, 0x65, 0x61, 0x64, 0x65, 0x72, 0x4d, 0x73, 0x67, 0x43, 0x61, 0x70)
 	o = msgp.AppendInt64(o, z.AvailReaderMsgCap)
+	// string "FromRttEstNsec"
+	o = append(o, 0xae, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x45, 0x73, 0x74, 0x4e, 0x73, 0x65, 0x63)
+	o = msgp.AppendInt64(o, z.FromRttEstNsec)
+	// string "FromRttSdNsec"
+	o = append(o, 0xad, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x53, 0x64, 0x4e, 0x73, 0x65, 0x63)
+	o = msgp.AppendInt64(o, z.FromRttSdNsec)
+	// string "FromRttN"
+	o = append(o, 0xa8, 0x46, 0x72, 0x6f, 0x6d, 0x52, 0x74, 0x74, 0x4e)
+	o = msgp.AppendInt64(o, z.FromRttN)
 	// string "CumulBytesTransmitted"
 	o = append(o, 0xb5, 0x43, 0x75, 0x6d, 0x75, 0x6c, 0x42, 0x79, 0x74, 0x65, 0x73, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x6d, 0x69, 0x74, 0x74, 0x65, 0x64)
 	o = msgp.AppendInt64(o, z.CumulBytesTransmitted)
@@ -308,6 +376,11 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			}
 		case "Dest":
 			z.Dest, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				return
+			}
+		case "ArrivedAtDestTm":
+			z.ArrivedAtDestTm, bts, err = msgp.ReadTimeBytes(bts)
 			if err != nil {
 				return
 			}
@@ -361,6 +434,21 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			if err != nil {
 				return
 			}
+		case "FromRttEstNsec":
+			z.FromRttEstNsec, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
+		case "FromRttSdNsec":
+			z.FromRttSdNsec, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
+		case "FromRttN":
+			z.FromRttN, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				return
+			}
 		case "CumulBytesTransmitted":
 			z.CumulBytesTransmitted, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
@@ -383,6 +471,6 @@ func (z *Packet) UnmarshalMsg(bts []byte) (o []byte, err error) {
 }
 
 func (z *Packet) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 11 + msgp.TimeSize + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 11 + msgp.TimeSize + 8 + msgp.BoolSize + 10 + msgp.BoolSize + 20 + msgp.Int64Size + 18 + msgp.Int64Size + 22 + msgp.Int64Size + 5 + msgp.BytesPrefixSize + len(z.Data)
+	s = 3 + 5 + msgp.StringPrefixSize + len(z.From) + 5 + msgp.StringPrefixSize + len(z.Dest) + 16 + msgp.TimeSize + 11 + msgp.TimeSize + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 7 + msgp.Int64Size + 9 + msgp.Int64Size + 11 + msgp.TimeSize + 8 + msgp.BoolSize + 10 + msgp.BoolSize + 20 + msgp.Int64Size + 18 + msgp.Int64Size + 15 + msgp.Int64Size + 14 + msgp.Int64Size + 9 + msgp.Int64Size + 22 + msgp.Int64Size + 5 + msgp.BytesPrefixSize + len(z.Data)
 	return
 }
