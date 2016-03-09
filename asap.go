@@ -15,6 +15,12 @@ type AsapHelper struct {
 	ReqStop chan bool
 	Done    chan bool
 
+	// drop packets at this size limite,
+	// but discard the first rather than
+	// the last, so new info can be seen
+	// rather than stale.
+	Limit int64
+
 	rcv     chan *Packet
 	enqueue chan *Packet
 	mut     sync.Mutex
@@ -26,12 +32,13 @@ type AsapHelper struct {
 // should then do blocking receives on to
 // aquire new *Packets out of order but As
 // Soon As Possible.
-func NewAsapHelper(rcvUnordered chan *Packet) *AsapHelper {
+func NewAsapHelper(rcvUnordered chan *Packet, max int64) *AsapHelper {
 	return &AsapHelper{
 		ReqStop: make(chan bool),
 		Done:    make(chan bool),
 		rcv:     rcvUnordered,
 		enqueue: make(chan *Packet),
+		Limit:   max,
 	}
 }
 
@@ -70,6 +77,9 @@ func (r *AsapHelper) Start() {
 				next = nil
 			case pack := <-r.enqueue:
 				r.q = append(r.q, pack)
+				if int64(len(r.q)) > r.Limit {
+					r.q = r.q[1:]
+				}
 			case <-r.ReqStop:
 				close(r.Done)
 				return

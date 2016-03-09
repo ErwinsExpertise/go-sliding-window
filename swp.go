@@ -342,8 +342,10 @@ func (s *Session) IncrPacketsSentForTransfer(n int64) int64 {
 // may be delayed. Clients should be prepared
 // to deal with duplicated, dropped, and mis-ordered packets
 // on the rcvUnordered channel.
-func (s *Session) RegisterAsap(rcvUnordered chan *Packet) error {
-	s.Swp.Recver.setAsapHelper <- NewAsapHelper(rcvUnordered)
+// The limit argument sets how many messages are queued before
+// we drop the oldest.
+func (s *Session) RegisterAsap(rcvUnordered chan *Packet, limit int64) error {
+	s.Swp.Recver.setAsapHelper <- NewAsapHelper(rcvUnordered, limit)
 	return nil
 }
 
