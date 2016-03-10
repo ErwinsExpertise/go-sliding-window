@@ -2,6 +2,7 @@ package swp
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	cv "github.com/glycerine/goconvey/convey"
@@ -111,7 +112,11 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	panicOn(err)
 	// if LastSeenAvailReaderMsgCap is 1, then we never get
 	// to send re-ordered 2nd packet, so make it at least 2.
-	A.Swp.Sender.LastSeenAvailReaderMsgCap = 2
+
+	// this next line is done above now that we set buffers
+	// from windowMsgSz and it is 2; so avoid this next
+	// line, which is a data race:
+	//A.Swp.Sender.LastSeenAvailReaderMsgCap = 2
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
@@ -185,7 +190,7 @@ func Test004DuplicatedPacketIsDiscarded(t *testing.T) {
 	}
 
 	A.Push(p1)
-	net.DuplicateNext = true
+	atomic.StoreUint32(&net.DuplicateNext, 1)
 	A.Push(p2)
 
 	time.Sleep(100 * time.Millisecond)
@@ -216,7 +221,7 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	A, err := NewSession(net, "A", "B", 3, -1, rtt, RealClk)
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, -1, rtt, RealClk)
-	B.Swp.Sender.LastFrameSent = 999
+	//B.Swp.Sender.LastFrameSent = 999
 	panicOn(err)
 
 	A.SelfConsumeForTesting()

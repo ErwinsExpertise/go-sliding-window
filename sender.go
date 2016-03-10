@@ -46,9 +46,10 @@ type SenderState struct {
 	SendAck      chan *Packet
 	DiscardCount int64
 
-	LastSendTime      time.Time
-	KeepAliveInterval time.Duration
-	keepAlive         <-chan time.Time
+	LastSendTime            time.Time
+	LastHeardFromDownstream time.Time
+	KeepAliveInterval       time.Duration
+	keepAlive               <-chan time.Time
 
 	SentButNotAcked map[int64]*TxqSlot
 
@@ -228,7 +229,7 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.RetryDeadline = s.GetDeadline(now, flow)
 					slot.Pack.SeqRetry++
-					slot.Pack.DataSendTm = now
+					slot.Pack.DataSendTm = now // data race here against recv.go:223/read
 
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
@@ -251,6 +252,8 @@ func (s *SenderState) Start() {
 				s.doOrigDataSend(pack)
 
 			case a := <-s.GotAck:
+				s.LastHeardFromDownstream = a.ArrivedAtDestTm
+
 				// ack received - do sender side stuff
 				//
 				q("%v sender GotAck a: %#v", s.Inbox, a)

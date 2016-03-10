@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,7 +28,7 @@ type SimNet struct {
 	heldBack            *Packet
 
 	// simulate duplicating the next packet
-	DuplicateNext bool
+	DuplicateNext uint32
 
 	// enforce that advertised windows are never
 	// violated by having more messages in flight
@@ -72,21 +73,26 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 func (sim *SimNet) Send(pack *Packet, why string) error {
 	q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
 
+	// try to avoid data races and race detector problems by
+	// copying the packet here
+	cp := *pack
+	pack2 := &cp
+
 	sim.mapMut.Lock()
-	sim.TotalSent[pack.From]++
+	sim.TotalSent[pack2.From]++
 	defer sim.mapMut.Unlock()
 
-	ch, ok := sim.Net[pack.Dest]
+	ch, ok := sim.Net[pack2.Dest]
 	if !ok {
-		return fmt.Errorf("sim sees packet for unknown node '%s'", pack.Dest)
+		return fmt.Errorf("sim sees packet for unknown node '%s'", pack2.Dest)
 	}
 
 	switch sim.SimulateReorderNext {
 	case 0:
 		// do nothing
 	case 1:
-		sim.heldBack = pack
-		//q("sim reordering: holding back pack SeqNum %v to %v", pack.SeqNum, pack.Dest)
+		sim.heldBack = pack2
+		//q("sim reordering: holding back pack SeqNum %v to %v", pack2.SeqNum, pack2.Dest)
 		sim.SimulateReorderNext++
 		return nil
 	default:
@@ -94,8 +100,8 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 		sim.SimulateReorderNext = 0
 	}
 
-	if pack.SeqNum == sim.DiscardOnce {
-		//q("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack.SeqNum, sim.DiscardOnce)
+	if pack2.SeqNum == sim.DiscardOnce {
+		//q("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack2.SeqNum, sim.DiscardOnce)
 		sim.DiscardOnce = -1
 		return nil
 	}
@@ -103,11 +109,11 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 	pr := cryptoProb()
 	isLost := pr <= sim.LossProb
 	if sim.LossProb > 0 && isLost {
-		//q("sim: bam! packet-lost! %v to %v", pack.SeqNum, pack.Dest)
+		//q("sim: bam! packet-lost! %v to %v", pack2.SeqNum, pack2.Dest)
 	} else {
-		//q("sim: %v to %v: not lost. packet will arrive after %v", pack.SeqNum, pack.Dest, sim.Latency)
+		//q("sim: %v to %v: not lost. packet will arrive after %v", pack2.SeqNum, pack2.Dest, sim.Latency)
 		// start a goroutine per packet sent, to simulate arrival time with a timer.
-		go sim.sendWithLatency(ch, pack, sim.Latency)
+		go sim.sendWithLatency(ch, pack2, sim.Latency)
 		if sim.heldBack != nil {
 			//q("sim: reordering now -- sending along heldBack packet %v to %v",
 			//	sim.heldBack.SeqNum, sim.heldBack.Dest)
@@ -115,9 +121,8 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 			sim.heldBack = nil
 		}
 
-		if sim.DuplicateNext {
-			sim.DuplicateNext = false
-			go sim.sendWithLatency(ch, pack, sim.Latency)
+		if atomic.CompareAndSwapUint32(&sim.DuplicateNext, 1, 0) {
+			go sim.sendWithLatency(ch, pack2, sim.Latency)
 		}
 
 	}

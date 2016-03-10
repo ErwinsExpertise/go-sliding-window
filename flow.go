@@ -2,6 +2,7 @@ package swp
 
 import (
 	"sync"
+	"time"
 )
 
 // FlowCtrl serializes access to the Flow state information
@@ -53,6 +54,10 @@ type Flow struct {
 	// estimates above, also avoids double counting
 	// by acting like a (possibly gappy) sequence number.
 	RemoteRttN int64
+
+	// figure out if we should close connection
+	// by tracking LastHeardFromDownstream
+	LastHeardFromDownstream time.Time
 }
 
 // GetFlow atomically returns a copy

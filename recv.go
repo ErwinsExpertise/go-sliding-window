@@ -198,7 +198,7 @@ func (r *RecvState) Start() error {
 					select {
 					case r.asapHelper.enqueue <- pack:
 					case <-time.After(100 * time.Millisecond):
-						// drop packet
+						// drop packet; note there may be gaps in SeqNum on Asap b/c of this.
 					case <-r.ReqStop:
 						close(r.Done)
 						return
@@ -220,7 +220,7 @@ func (r *RecvState) Start() error {
 				r.UpdateControl(pack)
 				// and tell snd about the new flow-control info
 				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
-				cp := CopyPacketSansData(pack)
+				cp := CopyPacketSansData(pack) // data race here against sender.go:232/write
 				select {
 				case r.snd.GotAck <- cp:
 				case <-r.ReqStop:

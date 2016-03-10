@@ -88,7 +88,11 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// for some reason 1 at a time thrases the semaphores
 	// somewhere in the Go runtime.
 	B, err := NewSession(bnet, "B", "A", 1, -1, rtt, RealClk)
-	B.Swp.Sender.LastFrameSent = 999
+
+	// easier to reason about when manually debugging,
+	// but is a data race:
+	// B.Swp.Sender.LastFrameSent = 999
+
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -192,7 +196,7 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	panicOn(err)
 	B, err := NewSession(net, "B", "A", 3, -1, rtt, RealClk)
 	panicOn(err)
-	B.Swp.Sender.LastFrameSent = 999
+	//B.Swp.Sender.LastFrameSent = 999
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()

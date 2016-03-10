@@ -1,6 +1,7 @@
 package swp
 
 import (
+	"sync"
 	"time"
 )
 
@@ -17,16 +18,21 @@ type Clock interface {
 // SimClock simulates time passing. Call
 // Advance to increment the time.
 type SimClock struct {
+	mu   sync.Mutex
 	When time.Time
 }
 
 // Now provides the simulated current time.
 func (c *SimClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.When
 }
 
 // Advance causes the simulated clock to advance by d.
 func (c *SimClock) Advance(d time.Duration) time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.When = c.When.Add(d)
 	return c.When
 }
