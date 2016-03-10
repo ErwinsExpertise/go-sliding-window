@@ -220,7 +220,7 @@ func (r *RecvState) Start() error {
 				r.UpdateControl(pack)
 				// and tell snd about the new flow-control info
 				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
-				cp := CopyPacketSansData(pack) // data race here against sender.go:232/write
+				cp := CopyPacketSansData(pack)
 				select {
 				case r.snd.GotAck <- cp:
 				case <-r.ReqStop:

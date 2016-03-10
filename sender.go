@@ -229,7 +229,7 @@ func (s *SenderState) Start() {
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
 					slot.RetryDeadline = s.GetDeadline(now, flow)
 					slot.Pack.SeqRetry++
-					slot.Pack.DataSendTm = now // data race here against recv.go:223/read
+					slot.Pack.DataSendTm = now
 
 					slot.Pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 					slot.Pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
