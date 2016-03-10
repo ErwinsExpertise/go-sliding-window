@@ -65,6 +65,10 @@ type SenderState struct {
 	FlowCt         *FlowCtrl
 	TotalBytesSent int64
 	rtt            *RTT
+
+	// nil after Stop() unless we terminated the session
+	// due to too many outstanding acks
+	ExitErr error
 }
 
 // NewSenderState constructs a new SenderState struct.

@@ -38,6 +38,8 @@ type SimNet struct {
 
 	ReqStop chan bool
 	Done    chan bool
+
+	AllowBlackHoleSends bool
 }
 
 // NewSimNet makes a network simulator. The
@@ -84,6 +86,9 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 
 	ch, ok := sim.Net[pack2.Dest]
 	if !ok {
+		if sim.AllowBlackHoleSends {
+			return nil
+		}
 		return fmt.Errorf("sim sees packet for unknown node '%s'", pack2.Dest)
 	}
 

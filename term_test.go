@@ -19,23 +19,24 @@ func Test015TerminationOfSessions(t *testing.T) {
 		lossProb := float64(0)
 		lat := 1 * time.Millisecond
 		net := NewSimNet(lossProb, lat)
+		net.AllowBlackHoleSends = true
 		rtt := 2 * lat
 
+		n := 10
 		var simClk = &SimClock{}
 		t0 := time.Now()
-		//t1 := t0.Add(time.Second)
+		t1 := t0.Add(time.Duration(n) * time.Second)
 		//t2 := t1.Add(time.Second)
 		simClk.Set(t0)
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk})
-		panicOn(err)
-		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
+			TermWindowDur:    1 * time.Second,
+			TermUnackedLimit: 1,
+		})
 		panicOn(err)
 
 		A.SelfConsumeForTesting()
-		B.SelfConsumeForTesting()
 
 		p1 := &Packet{
 			From: "A",
@@ -43,9 +44,14 @@ func Test015TerminationOfSessions(t *testing.T) {
 			Data: []byte("one"),
 		}
 
+		for i := 0; i < n; i++ {
+			A.Push(p1)
+		}
+		simClk.Set(t1)
 		A.Push(p1)
 
+		<-A.Done
+		cv.So(A.ExitErr, cv.ShouldEqual, TerminatedError)
 		A.Stop()
-
 	})
 }

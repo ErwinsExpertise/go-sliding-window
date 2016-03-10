@@ -176,6 +176,8 @@ func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
 	return swp
 }
 
+var TerminatedError error = fmt.Errorf("terminated session, too many unanswered acks")
+
 // Session tracks a given point-to-point sesssion and its
 // sliding window state for one of the end-points.
 type Session struct {
@@ -186,6 +188,13 @@ type Session struct {
 
 	Net            Network
 	ReadMessagesCh chan InOrderSeq
+
+	// if terminated with error,
+	// that error will live here
+	ExitErr error
+
+	// Done is closed if session is terminated.
+	Done chan bool
 
 	packetsConsumed uint64
 	packetsSent     uint64
@@ -265,6 +274,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,
+		Done:        make(chan bool),
 	}
 	sess.Swp.Start()
 	sess.ReadMessagesCh = sess.Swp.Recver.ReadMessagesCh
@@ -326,6 +336,8 @@ func InWindow(seqno, min, max int64) bool {
 // Stop shutsdown the session
 func (s *Session) Stop() {
 	s.Swp.Stop()
+	s.ExitErr = s.Swp.Sender.ExitErr
+	close(s.Done)
 }
 
 // Stop the sliding window protocol
