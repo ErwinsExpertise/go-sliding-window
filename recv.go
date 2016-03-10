@@ -222,7 +222,7 @@ func (r *RecvState) Start() error {
 				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
 				cp := CopyPacketSansData(pack)
 				select {
-				case r.snd.GotAck <- cp:
+				case r.snd.GotPack <- cp:
 				case <-r.ReqStop:
 					close(r.Done)
 					return

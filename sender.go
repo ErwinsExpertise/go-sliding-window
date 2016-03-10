@@ -17,7 +17,7 @@ type TxqSlot struct {
 // SenderState tracks the sender's sliding window state.
 // To avoid circular deadlocks, the SenderState never talks
 // directly to the RecvState. The RecvState will
-// tell the Sender stuff on GotAck.
+// tell the Sender stuff on GotPack.
 //
 // Acks, retries, keep-alives, and original-data: these
 // are the four types of sends we do.
@@ -37,7 +37,7 @@ type SenderState struct {
 	// the main goroutine safe way to request
 	// sending a packet:
 	BlockingSend chan *Packet
-	GotAck       chan *Packet
+	GotPack      chan *Packet
 
 	ReqStop      chan bool
 	Done         chan bool
@@ -85,7 +85,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SendHistory:      make([]*Packet, 0),
 		BlockingSend:     make(chan *Packet),
 		SendSz:           sendSz,
-		GotAck:           make(chan *Packet),
+		GotPack:          make(chan *Packet),
 		SendAck:          make(chan *Packet),
 		SentButNotAcked:  make(map[int64]*TxqSlot),
 
@@ -196,6 +196,14 @@ func (s *SenderState) Start() {
 				now := s.Clk.Now()
 				q("%v regularIntervalWakeup at %v", s.Inbox, now)
 
+				//if now.Sub(time.Hour).After(s.LastHeardFromDownstream) {
+				// it's been an hour, should we do something?
+				// well, have we been sending in this time? even
+				// s.LastSendTime might have been just a split
+				// second ago, so hard to know if we should close
+				// the connection. Let's leave it going for now.
+				//}
+
 				// have any of our packets timed-out and need to be
 				// sent again?
 				retry := []*TxqSlot{}
@@ -251,18 +259,19 @@ func (s *SenderState) Start() {
 				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
 				s.doOrigDataSend(pack)
 
-			case a := <-s.GotAck:
+			case a := <-s.GotPack:
 				s.LastHeardFromDownstream = a.ArrivedAtDestTm
 
-				// ack received - do sender side stuff
+				// ack/keepalive/data packet received in 'a' -
+				// do sender side stuff
 				//
-				q("%v sender GotAck a: %#v", s.Inbox, a)
+				q("%v sender GotPack a: %#v", s.Inbox, a)
 				//
 				// flow control: respect a.AvailReaderBytesCap
 				// and a.AvailReaderMsgCap info that we have
 				// received from this ack
 				//
-				q("%v sender GotAck, updating s.LastSeenAvailReaderMsgCap %v -> %v",
+				q("%v sender GotPack, updating s.LastSeenAvailReaderMsgCap %v -> %v",
 					s.Inbox, s.LastSeenAvailReaderMsgCap, a.AvailReaderMsgCap)
 				s.LastSeenAvailReaderBytesCap = a.AvailReaderBytesCap
 				s.LastSeenAvailReaderMsgCap = a.AvailReaderMsgCap
