@@ -30,7 +30,7 @@ func Test015TerminationOfSessions(t *testing.T) {
 		simClk.Set(t0)
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
+			WindowMsgSz: 20, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
 			TermWindowDur:    1 * time.Second,
 			TermUnackedLimit: 1,
 		})
@@ -50,7 +50,11 @@ func Test015TerminationOfSessions(t *testing.T) {
 		simClk.Set(t1)
 		A.Push(p1)
 
-		<-A.Done
+		select {
+		case <-A.Done:
+		case <-time.After(time.Second):
+			panic("should have gotten session Done closed and TerminatedError by now")
+		}
 		cv.So(A.ExitErr, cv.ShouldEqual, TerminatedError)
 		A.Stop()
 	})
