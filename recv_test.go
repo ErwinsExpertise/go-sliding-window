@@ -16,9 +16,11 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 		net := NewSimNet(lossProb, lat)
 		rtt := 2 * lat
 
-		A, err := NewSession(net, "A", "B", 3, -1, rtt, RealClk)
+		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 		panicOn(err)
-		B, err := NewSession(net, "B", "A", 3, -1, rtt, RealClk)
+		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 		panicOn(err)
 
 		p1 := &Packet{

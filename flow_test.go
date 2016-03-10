@@ -81,13 +81,15 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	rtt := 100 * lat
 
-	A, err := NewSession(anet, "A", "B", 1, -1, rtt, RealClk)
+	A, err := NewSession(SessionConfig{Net: anet, LocalInbox: "A", DestInbox: "B",
+		WindowMsgSz: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-
 	p("receiver only wants 1 at a time")
 	// for some reason 1 at a time thrases the semaphores
 	// somewhere in the Go runtime.
-	B, err := NewSession(bnet, "B", "A", 1, -1, rtt, RealClk)
+	B, err := NewSession(SessionConfig{Net: bnet, LocalInbox: "B", DestInbox: "A",
+		WindowMsgSz: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	panicOn(err)
 
 	// easier to reason about when manually debugging,
 	// but is a data race:
@@ -192,11 +194,12 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 1000 * lat
 
-	A, err := NewSession(net, "A", "B", 3, -1, rtt, RealClk)
+	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
+		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-	B, err := NewSession(net, "B", "A", 3, -1, rtt, RealClk)
+	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
+		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-	//B.Swp.Sender.LastFrameSent = 999
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()

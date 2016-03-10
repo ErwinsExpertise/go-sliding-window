@@ -179,6 +179,7 @@ func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
 // Session tracks a given point-to-point sesssion and its
 // sliding window state for one of the end-points.
 type Session struct {
+	Cfg         *SessionConfig
 	Swp         *SWP
 	Destination string
 	MyInbox     string
@@ -188,6 +189,41 @@ type Session struct {
 
 	packetsConsumed uint64
 	packetsSent     uint64
+}
+
+// SessionConfig configures a Session.
+type SessionConfig struct {
+
+	// the network the use, NatsNet or SimNet
+	Net Network
+
+	// where we listen
+	LocalInbox string
+
+	// the remote destination topic for our messages
+	DestInbox string
+
+	// capacity of our receive buffers in message count
+	WindowMsgSz int64
+
+	// capactiy of our receive buffers in byte count
+	WindowByteSz int64
+
+	// how often we wakeup and check
+	// if packets need to be retried.
+	Timeout time.Duration
+
+	// the clock (real or simulated) to use
+	Clk Clock
+
+	// how long a window we use for termination
+	// checking. Ignored if 0.
+	TermWindowDur time.Duration
+
+	// how many unacked packets we can see inside
+	// TermWindowDur before giving up and termiating
+	// the session. Ignored if 0.
+	TermUnackedLimit int
 }
 
 // NewSession makes a new Session, and calls
@@ -211,28 +247,24 @@ type Session struct {
 // to two-clock skew because the same clock is used
 // for both begin and end measurements.
 //
-func NewSession(net Network,
-	localInbox string,
-	destInbox string,
-	windowMsgSz int64,
-	windowByteSz int64,
-	timeout time.Duration,
-	clk Clock) (*Session, error) {
+func NewSession(cfg SessionConfig) (*Session, error) {
 
-	if windowMsgSz < 1 {
+	if cfg.WindowMsgSz < 1 {
 		return nil, fmt.Errorf("windowMsgSz must be 1 or more")
 	}
 
-	if windowByteSz < windowMsgSz {
+	if cfg.WindowByteSz < cfg.WindowMsgSz {
 		// guestimate
-		windowByteSz = windowMsgSz * 10 * 1024
+		cfg.WindowByteSz = cfg.WindowMsgSz * 10 * 1024
 	}
 
 	sess := &Session{
-		Swp:         NewSWP(net, windowMsgSz, windowByteSz, timeout, localInbox, destInbox, clk),
-		MyInbox:     localInbox,
-		Destination: destInbox,
-		Net:         net,
+		Cfg: &cfg,
+		Swp: NewSWP(cfg.Net, cfg.WindowMsgSz, cfg.WindowByteSz,
+			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk),
+		MyInbox:     cfg.LocalInbox,
+		Destination: cfg.DestInbox,
+		Net:         cfg.Net,
 	}
 	sess.Swp.Start()
 	sess.ReadMessagesCh = sess.Swp.Recver.ReadMessagesCh
