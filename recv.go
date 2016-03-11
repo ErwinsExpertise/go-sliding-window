@@ -179,6 +179,9 @@ func (r *RecvState) Start() error {
 				//q("%v recvloop sees ReqStop, shutting down.", r.Inbox)
 				close(r.Done)
 				return
+			case <-r.snd.SenderShutdown:
+				close(r.Done)
+				return
 			case pack := <-r.MsgRecv:
 				//p("%v recvloop sees packet '%#v'", r.Inbox, pack)
 				// test instrumentation, used e.g. in clock_test.go

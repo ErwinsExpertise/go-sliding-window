@@ -72,6 +72,9 @@ type SenderState struct {
 
 	FailTracker *EventRingBuf
 	TermCfg     *TermConfig
+
+	// tell the receiver that sender is terminating
+	SenderShutdown chan bool
 }
 
 // NewSenderState constructs a new SenderState struct.
@@ -95,6 +98,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		GotPack:          make(chan *Packet),
 		SendAck:          make(chan *Packet),
 		SentButNotAcked:  make(map[int64]*TxqSlot),
+		SenderShutdown:   make(chan bool),
 
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
@@ -153,7 +157,7 @@ func (s *SenderState) ComputeInflight() (bytesInflight int64, msgInflight int64)
 
 // Start initiates the SenderState goroutine, which manages
 // sends, timeouts, and resends
-func (s *SenderState) Start() {
+func (s *SenderState) Start(sess *Session) {
 
 	go func() {
 
@@ -220,14 +224,23 @@ func (s *SenderState) Start() {
 				// have any of our packets timed-out and need to be
 				// sent again?
 				retry := []*TxqSlot{}
+				//q("about to check s.FailTracker = %p", s.FailTracker)
 				for _, slot := range s.SentButNotAcked {
 					if slot.RetryDeadline.Before(now) {
 						retry = append(retry, slot)
-						if s.FailTracker != nil && s.FailTracker.AddEventCheckOverflow(now) {
-							msg := fmt.Sprintf("Sender sees %v ack fails in window of %v, terminating session",
+						if s.FailTracker != nil &&
+							s.FailTracker.AddEventCheckOverflow(now) {
+							q("s.FailTracker detected too many errors, " +
+								"terminating session")
+							msg := fmt.Sprintf("Sender sees %v ack fails in "+
+								"window of %v, terminating session",
 								s.FailTracker.N, s.FailTracker.Window)
-							s.ExitErr = &TerminatedError{Msg: msg}
+							te := &TerminatedError{Msg: msg}
+							s.ExitErr = te
+							sess.ExitErr = te
+							close(s.SenderShutdown) // stops the receiver
 							close(s.Done)
+							close(sess.Done) // lets clients detect shutdown
 							return
 						}
 					}

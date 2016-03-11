@@ -286,7 +286,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		Net:         cfg.Net,
 		Done:        make(chan bool),
 	}
-	sess.Swp.Start()
+	sess.Swp.Start(sess)
 	sess.ReadMessagesCh = sess.Swp.Recver.ReadMessagesCh
 
 	return sess, nil
@@ -347,7 +347,11 @@ func InWindow(seqno, min, max int64) bool {
 func (s *Session) Stop() {
 	s.Swp.Stop()
 	s.ExitErr = s.Swp.Sender.ExitErr
-	close(s.Done)
+	select {
+	case <-s.Done:
+	default:
+		close(s.Done)
+	}
 }
 
 // Stop the sliding window protocol
@@ -357,10 +361,10 @@ func (s *SWP) Stop() {
 }
 
 // Start the sliding window protocol
-func (s *SWP) Start() {
+func (s *SWP) Start(sess *Session) {
 	//q("SWP Start() called")
 	s.Recver.Start()
-	s.Sender.Start()
+	s.Sender.Start(sess)
 }
 
 // CountPacketsReadConsumed reports on how many packets

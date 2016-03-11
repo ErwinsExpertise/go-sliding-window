@@ -41,7 +41,9 @@ func (c *SimClock) Advance(d time.Duration) time.Time {
 // be returned by Now() until another Set or Advance
 // call is made.
 func (c *SimClock) Set(w time.Time) {
+	c.mu.Lock()
 	c.When = w
+	c.mu.Unlock()
 }
 
 // RealClock just passes the Now() call to time.Now().
