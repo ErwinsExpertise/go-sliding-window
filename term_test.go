@@ -31,8 +31,9 @@ func Test015TerminationOfSessions(t *testing.T) {
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
 			WindowMsgSz: 20, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
-			TermWindowDur:    1 * time.Second,
-			TermUnackedLimit: 1,
+			TermCfg: TermConfig{TermWindowDur: 1 * time.Second,
+				TermUnackedLimit: 1,
+			},
 		})
 		panicOn(err)
 
@@ -55,7 +56,7 @@ func Test015TerminationOfSessions(t *testing.T) {
 		case <-time.After(time.Second):
 			panic("should have gotten session Done closed and TerminatedError by now")
 		}
-		cv.So(A.ExitErr, cv.ShouldEqual, TerminatedError)
+		cv.So(A.ExitErr, cv.ShouldResemble, &TerminatedError{})
 		A.Stop()
 	})
 }

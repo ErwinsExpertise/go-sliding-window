@@ -164,9 +164,9 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
-	timeout time.Duration, inbox string, destInbox string, clk Clock) *SWP {
+	timeout time.Duration, inbox string, destInbox string, clk Clock, termCfg *TermConfig) *SWP {
 
-	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, termCfg)
 	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk)
 	swp := &SWP{
 		Sender: snd,
@@ -176,7 +176,13 @@ func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
 	return swp
 }
 
-var TerminatedError error = fmt.Errorf("terminated session, too many unanswered acks")
+type TerminatedError struct {
+	Msg string
+}
+
+func (t *TerminatedError) Error() string {
+	return t.Msg
+}
 
 // Session tracks a given point-to-point sesssion and its
 // sliding window state for one of the end-points.
@@ -225,6 +231,10 @@ type SessionConfig struct {
 	// the clock (real or simulated) to use
 	Clk Clock
 
+	TermCfg TermConfig
+}
+
+type TermConfig struct {
 	// how long a window we use for termination
 	// checking. Ignored if 0.
 	TermWindowDur time.Duration
@@ -270,7 +280,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	sess := &Session{
 		Cfg: &cfg,
 		Swp: NewSWP(cfg.Net, cfg.WindowMsgSz, cfg.WindowByteSz,
-			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk),
+			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk, &cfg.TermCfg),
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,

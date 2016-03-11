@@ -69,11 +69,14 @@ type SenderState struct {
 	// nil after Stop() unless we terminated the session
 	// due to too many outstanding acks
 	ExitErr error
+
+	FailTracker *EventRingBuf
+	TermCfg     *TermConfig
 }
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
-	inbox string, destInbox string, clk Clock) *SenderState {
+	inbox string, destInbox string, clk Clock, termCfg *TermConfig) *SenderState {
 	s := &SenderState{
 		Clk:              clk,
 		Net:              net,
@@ -124,10 +127,16 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// the actual receiver over network.
 		LastSeenAvailReaderMsgCap:   sendSz,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
-		rtt: NewRTT(),
+		rtt:     NewRTT(),
+		TermCfg: termCfg,
 	}
 	for i := range s.Txq {
 		s.Txq[i] = &TxqSlot{}
+	}
+	if s.TermCfg != nil {
+		if s.TermCfg.TermWindowDur > 0 && s.TermCfg.TermUnackedLimit > 0 {
+			s.FailTracker = NewEventRingBuf(s.TermCfg.TermUnackedLimit, s.TermCfg.TermWindowDur)
+		}
 	}
 	return s
 }
@@ -214,6 +223,13 @@ func (s *SenderState) Start() {
 				for _, slot := range s.SentButNotAcked {
 					if slot.RetryDeadline.Before(now) {
 						retry = append(retry, slot)
+						if s.FailTracker != nil && s.FailTracker.AddEventCheckOverflow(now) {
+							msg := fmt.Sprintf("Sender sees %v ack fails in window of %v, terminating session",
+								s.FailTracker.N, s.FailTracker.Window)
+							s.ExitErr = &TerminatedError{Msg: msg}
+							close(s.Done)
+							return
+						}
 					}
 				}
 				if len(retry) > 0 {
