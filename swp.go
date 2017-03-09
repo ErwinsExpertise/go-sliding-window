@@ -221,7 +221,7 @@ type SessionConfig struct {
 	// capacity of our receive buffers in message count
 	WindowMsgSz int64
 
-	// capactiy of our receive buffers in byte count
+	// capacity of our receive buffers in byte count
 	WindowByteSz int64
 
 	// how often we wakeup and check
