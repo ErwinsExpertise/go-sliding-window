@@ -73,7 +73,7 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 // annoation is optional and allows the logs to illumate
 // the purpose of each send (ack, keepAlive, data, etc).
 func (sim *SimNet) Send(pack *Packet, why string) error {
-	q("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
+	//p("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
 
 	// try to avoid data races and race detector problems by
 	// copying the packet here
@@ -143,7 +143,7 @@ func (sim *SimNet) sendWithLatency(ch chan *Packet, pack *Packet, lat time.Durat
 	//	sim.preCheckFlowControlNotViolated(pack)
 
 	ch <- pack
-	q("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
+	//p("sim: packet (SeqNum: %v) delivered to node %v", pack.SeqNum, pack.Dest)
 
 	//	sim.postCheckFlowControlNotViolated(pack)
 
@@ -215,8 +215,8 @@ func HistoryEqual(a, b []*Packet) bool {
 	}
 	for i := 0; i < na; i++ {
 		if a[i].SeqNum != b[i].SeqNum {
-			q("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
-				i, a[i].SeqNum, b[i].SeqNum)
+			//p("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
+			//	i, a[i].SeqNum, b[i].SeqNum)
 			return false
 		}
 	}

@@ -1,19 +1,25 @@
 package swp
 
 import (
-	"github.com/glycerine/nats"
 	"sync"
+
+	"github.com/glycerine/idem"
+	"github.com/glycerine/nats"
 )
 
 // NatsNet connects to nats using the Network interface.
 type NatsNet struct {
-	Cli *NatsClient
-	mut sync.Mutex
+	Cli  *NatsClient
+	mut  sync.Mutex
+	Halt *idem.Halter
 }
 
 // NewNatsNet makes a new NataNet based on an actual nats client.
 func NewNatsNet(cli *NatsClient) *NatsNet {
-	net := &NatsNet{Cli: cli}
+	net := &NatsNet{
+		Cli:  cli,
+		Halt: idem.NewHalter(),
+	}
 	return net
 }
 
@@ -35,18 +41,26 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 		var pack Packet
 		_, err := pack.UnmarshalMsg(msg.Data)
 		panicOn(err)
-		mr <- &pack
+		select {
+		case mr <- &pack:
+		case <-n.Halt.ReqStop.Chan:
+		}
 	})
-	q("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
+	//p("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
 	return mr, err
 }
 
 // Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet, why string) error {
-	q("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
+	//p("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err
 	}
 	return n.Cli.Nc.Publish(pack.Dest, bts)
+}
+
+func (n *NatsNet) Stop() {
+	n.Halt.RequestStop()
+	n.Halt.Done.Close()
 }

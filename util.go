@@ -72,7 +72,7 @@ func tempDirCleanup(origdir string, tmpdir string) {
 	if err != nil {
 		panic(err)
 	}
-	q("\n TempDirCleanup of '%s' done.\n", tmpdir)
+	//p("\n TempDirCleanup of '%s' done.\n", tmpdir)
 }
 
 // getAvailPort asks the OS for an unused port.
@@ -149,7 +149,7 @@ func (s *NatsClient) Start() error {
 
 	nc, err := nats.Connect(s.Cfg.ServerList, s.Cfg.Opts...)
 	panicOn(err)
-	q("client connection succeeded.")
+	//p("client connection succeeded.")
 	s.Nc = nc
 
 	return nil

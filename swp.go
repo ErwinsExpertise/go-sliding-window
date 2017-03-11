@@ -43,6 +43,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/glycerine/idem"
 )
 
 // sliding window protocol
@@ -58,7 +60,7 @@ import (
 
 //go:generate msgp
 
-//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet Network Session SWP
+//msgp:ignore TxqSlot RxqSlot Semaphore SenderState RecvState SWP Session NatsNet SimNet Network Session SWP SessionConfig TermConfig
 
 // Packet is what is transmitted between Sender A and
 // Receiver B, where A and B are the two endpoints in a
@@ -200,11 +202,11 @@ type Session struct {
 	// that error will live here
 	ExitErr error
 
-	// Done is closed if session is terminated.
+	// Halt.Done.Chan is closed if session is terminated.
 	// This will happen if the remote session stops
 	// responding and is thus declared dead, as well
 	// as after an explicit close.
-	Done chan bool
+	Halt *idem.Halter
 
 	packetsConsumed                  uint64
 	packetsSent                      uint64
@@ -300,7 +302,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,
-		Done:        make(chan bool),
+		Halt:        idem.NewHalter(),
 		NumFailedKeepAlivesBeforeClosing: cfg.NumFailedKeepAlivesBeforeClosing,
 	}
 	sess.Swp.Sender.NumFailedKeepAlivesBeforeClosing = cfg.NumFailedKeepAlivesBeforeClosing
@@ -316,7 +318,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 func (s *Session) Push(pack *Packet) {
 	select {
 	case s.Swp.Sender.BlockingSend <- pack:
-		q("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
+		//p("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
 		s.IncrPacketsSentForTransfer(1)
 	case <-s.Swp.Sender.Halt.ReqStop.Chan:
 		// give up, Sender is shutting down.
@@ -365,11 +367,8 @@ func InWindow(seqno, min, max int64) bool {
 func (s *Session) Stop() {
 	s.Swp.Stop()
 	s.ExitErr = s.Swp.Sender.ExitErr
-	select {
-	case <-s.Done:
-	default:
-		close(s.Done)
-	}
+	s.Halt.RequestStop()
+	s.Halt.Done.Close()
 }
 
 // Stop the sliding window protocol

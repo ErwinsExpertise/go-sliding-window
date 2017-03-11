@@ -73,8 +73,8 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	anet := NewNatsNet(pub)
 	bnet := NewNatsNet(sub)
 
-	q("sub = %#v", sub)
-	q("pub = %#v", pub)
+	//p("sub = %#v", sub)
+	//p("pub = %#v", pub)
 
 	//lossProb := float64(0)
 	lat := 1 * time.Millisecond

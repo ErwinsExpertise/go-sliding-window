@@ -109,7 +109,7 @@ func Test020DetectOtherEndShutdown(t *testing.T) {
 		var held int64
 		select {
 		case held = <-B.Swp.Recver.NumHeldMessages:
-		case <-B.Done:
+		case <-B.Halt.Done.Chan:
 			p("we see B.Done shutdown")
 		}
 
@@ -132,7 +132,7 @@ func Test020DetectOtherEndShutdown(t *testing.T) {
 		B.Stop()
 		p("just after B.Stop()")
 		select {
-		case <-A.Done:
+		case <-A.Halt.Done.Chan:
 		case <-time.After(time.Second * 10):
 			panic("should have gotten Done by now")
 		}

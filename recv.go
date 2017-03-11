@@ -144,6 +144,9 @@ func (r *RecvState) Start() error {
 			r.Halt.RequestStop()
 			r.Halt.MarkDone()
 			r.cleanupOnExit()
+			if r.snd != nil && r.snd.Halt != nil {
+				r.snd.Halt.RequestStop()
+			}
 		}()
 
 	recvloop:
@@ -243,17 +246,21 @@ func (r *RecvState) Start() error {
 						continue recvloop
 					}
 					if pack.Closing {
-
+						//p("%v recvloop sees pack.Closing from other end, shutting down.", r.Inbox)
+						return
 					}
 					// actual data received, receiver side stuff
 
 					// if not old dup, add to hash of to-be-consumed
 					if pack.SeqNum >= r.NextFrameExpected {
 						r.RcvdButNotConsumed[pack.SeqNum] = pack
-						q("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
-							r.Inbox, pack.SeqNum, r.HeldAsString())
+						//p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
+						//r.Inbox, pack.SeqNum, r.HeldAsString())
 					}
 
+					//p("len r.Rxq = %v", len(r.Rxq))
+					//p("pack=%#v", pack)
+					//p("pack.SeqNum=%v, r.RecvWindowSize=%v, pack.SeqNum%%r.RecvWindowSize=%v", pack.SeqNum, r.RecvWindowSize, pack.SeqNum%r.RecvWindowSize)
 					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
 					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
 						// Variation from textbook TCP: In the
@@ -322,7 +329,7 @@ func (r *RecvState) Start() error {
 // receives, which is passed to UpdateFlow().
 //
 func (r *RecvState) UpdateControl(pack *Packet) {
-	begVal := r.LastAvailReaderMsgCap
+	//begVal := r.LastAvailReaderMsgCap // used in diagnostic print at bottom
 
 	// just like TCP flow control, where
 	// advertisedWindow = maxRecvBuffer - (lastByteRcvd - nextByteRead)
@@ -330,16 +337,16 @@ func (r *RecvState) UpdateControl(pack *Packet) {
 	r.LastAvailReaderBytesCap = r.RecvWindowSizeBytes - (r.MaxCumulBytesTrans - (r.LastByteConsumed + 1))
 	r.snd.FlowCt.UpdateFlow(r.Inbox+":recver", r.Net, r.LastAvailReaderMsgCap, r.LastAvailReaderBytesCap, pack)
 
-	q("%v UpdateFlowControl in RecvState, bottom: "+
-		"r.LastAvailReaderMsgCap= %v -> %v",
-		r.Inbox, begVal, r.LastAvailReaderMsgCap)
+	//p("%v UpdateFlowControl in RecvState, bottom: "+
+	//	"r.LastAvailReaderMsgCap= %v -> %v",
+	//	r.Inbox, begVal, r.LastAvailReaderMsgCap)
 }
 
 // ack is a helper function, used in the recvloop above.
 // Currently seqno is always r.NextFrameExpected-1
 func (r *RecvState) ack(seqno int64, pack *Packet) {
 	r.UpdateControl(pack)
-	//q("%v about to send ack with AckNum: %v to %v",
+	//p("%v about to send ack with AckNum: %v to %v",
 	//	r.Inbox, seqno, dest)
 	// send ack
 	now := r.Clk.Now()

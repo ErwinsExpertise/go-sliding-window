@@ -57,7 +57,7 @@ func Test015TerminationOfSessions(t *testing.T) {
 		A.Push(p1)
 
 		select {
-		case <-A.Done:
+		case <-A.Halt.Done.Chan:
 		case <-time.After(time.Second):
 			panic("should have gotten session Done closed and TerminatedError by now")
 		}
