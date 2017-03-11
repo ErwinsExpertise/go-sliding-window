@@ -24,7 +24,7 @@ func main() {
 	nport, err := strconv.Atoi(port)
 	panicOn(err)
 
-	fmt.Printf("contacting nats://%v:%v", host, port)
+	fmt.Printf("contacting nats://%v:%v\n", host, port)
 
 	// ===============================
 	// setup nats client for a publisher
@@ -44,15 +44,15 @@ func main() {
 
 	anet := swp.NewNatsNet(pub)
 
-	fmt.Printf("pub = %#v\n", pub)
+	//fmt.Printf("pub = %#v\n", pub)
 
 	to := time.Millisecond * 100
 	A, err := swp.NewSession(swp.SessionConfig{Net: anet, LocalInbox: "A", DestInbox: "B",
 		WindowMsgSz: 1000, WindowByteSz: -1, Timeout: to, Clk: swp.RealClk})
 	panicOn(err)
 
-	rep := swp.ReportOnSubscription(pub.Scrip)
-	fmt.Printf("rep = %#v\n", rep)
+	//rep := swp.ReportOnSubscription(pub.Scrip)
+	//fmt.Printf("rep = %#v\n", rep)
 
 	msgLimit := int64(1000)
 	bytesLimit := int64(600000)
@@ -65,7 +65,7 @@ func main() {
 	A.SelfConsumeForTesting() // read any acks
 
 	// writer does:
-	A.PushGetAck(&swp.Packet{
+	A.PushGetBrokerAck(&swp.Packet{
 		From: "A",
 		Dest: "B",
 		Data: []byte("hello world"),

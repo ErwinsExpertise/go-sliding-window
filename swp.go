@@ -312,7 +312,20 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	return sess, nil
 }
 
-// Push sends a message packet, blocking until that is done.
+// Push sends a message packet, blocking until there
+// is a flow-control slot available.
+// The Push will block due to flow control to avoid
+// over-running the receiving clients buffers.
+//
+// Upon return we are not guaranteed that the
+// the message has reached the broker or the client.
+// If you want to Flush() to the broker,
+// use the PushGetAck() method instead.
+// This will hurt throughput, but may be
+// needed if you are going to shutdown
+// right after the send (to avoid dropping
+// the packet before it reaches the broker).
+//
 // You can use s.CountPacketsSentForTransfer() to get
 // the total count of packets Push()-ed so far.
 func (s *Session) Push(pack *Packet) {
@@ -325,12 +338,15 @@ func (s *Session) Push(pack *Packet) {
 	}
 }
 
-// PushGetAck is like Push, but waits for an
-// ack from the gnatsd broker before returning.
+// PushGetBrokerAck is like Push, but waits for an
+// Flush() on the nast.Conn (ack from the
+// gnatsd broker) before returning.
 // This is useful if you are going to close the
 // program after the send, but actually want
 // the send to get through before closing.
-func (s *Session) PushGetAck(pack *Packet) {
+// Note that Flush will also return if we timeout trying to
+// contact the broker after 60 seconds.
+func (s *Session) PushGetBrokerAck(pack *Packet) {
 	select {
 	case s.Swp.Sender.BlockingSendGetAck <- pack:
 		//p("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))

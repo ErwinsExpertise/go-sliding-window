@@ -407,7 +407,10 @@ func (s *SenderState) Stop() {
 	<-s.Halt.Done.Chan
 }
 
-// for first time sends of data, not retries or acks.
+// doOrigDataSend() is for first time sends of data, not retries or acks.
+// If getAck is true, then we will call Flush on the
+// nats connection. This will wait for an ack from the
+// server (or timeout after 60 seconds).
 func (s *SenderState) doOrigDataSend(pack *Packet, getAck bool) {
 	//q("%v sender in acceptSend", s.Inbox)
 
@@ -500,7 +503,7 @@ func (s *SenderState) doSendClosing() {
 	kap := &Packet{
 		From:                s.Inbox,
 		Dest:                s.Dest,
-		SeqNum:              -888, // => close
+		SeqNum:              -888, // => endpoint is closing
 		SeqRetry:            -888,
 		DataSendTm:          now,
 		AckRetry:            -888,

@@ -174,7 +174,7 @@ func (s *NatsClient) Close() {
 	if s.Nc != nil {
 		s.Nc.Close()
 	}
-	p("NatsClient unsubscribe and close done")
+	//p("NatsClient unsubscribe and close done")
 }
 
 type asyncErr struct {

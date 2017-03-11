@@ -26,7 +26,7 @@ func main() {
 	nport, err := strconv.Atoi(port)
 	panicOn(err)
 
-	fmt.Printf("contacting nats://%v:%v", host, port)
+	fmt.Printf("contacting nats://%v:%v\n", host, port)
 
 	// ===============================
 	// setup nats client for a subscriber
@@ -43,7 +43,7 @@ func main() {
 	// ===============================
 	var bnet *swp.NatsNet
 
-	fmt.Printf("sub = %#v\n", sub)
+	//fmt.Printf("sub = %#v\n", sub)
 
 restart:
 	for {
@@ -51,7 +51,7 @@ restart:
 			bnet.Stop()
 		}
 		bnet = swp.NewNatsNet(sub)
-		fmt.Printf("recv.go is setting up NewSession...\n")
+		//fmt.Printf("recv.go is setting up NewSession...\n")
 		to := time.Millisecond * 100
 		B, err := swp.NewSession(swp.SessionConfig{Net: bnet, LocalInbox: "B", DestInbox: "A",
 			WindowMsgSz: 1000, WindowByteSz: -1, Timeout: to, Clk: swp.RealClk,
@@ -59,8 +59,8 @@ restart:
 		})
 		panicOn(err)
 
-		rep := swp.ReportOnSubscription(sub.Scrip)
-		fmt.Printf("rep = %#v\n", rep)
+		//rep := swp.ReportOnSubscription(sub.Scrip)
+		//fmt.Printf("rep = %#v\n", rep)
 
 		msgLimit := int64(1000)
 		bytesLimit := int64(600000)
@@ -73,16 +73,17 @@ restart:
 		B.SelfConsumeForTesting() // read any acks
 
 		for {
-			fmt.Printf("\n ... about to receive on B.ReadMessagesCh %p\n", B.ReadMessagesCh)
+			//fmt.Printf("\n ... about to receive on B.ReadMessagesCh %p\n", B.ReadMessagesCh)
 			select {
 			case seq := <-B.ReadMessagesCh:
 				for _, pk := range seq.Seq {
 					_, err := io.Copy(os.Stdout, bytes.NewBuffer(pk.Data))
 					panicOn(err)
-					fmt.Printf("\ndone with latest io.Copy, err was nil.\n")
+					fmt.Printf("\n")
+					//fmt.Printf("\ndone with latest io.Copy, err was nil.\n")
 				}
 			case <-B.Halt.Done.Chan:
-				fmt.Printf("recv got B.Done\n")
+				//fmt.Printf("recv got B.Done\n")
 				continue restart
 			}
 		}
