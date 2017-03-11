@@ -449,11 +449,6 @@ func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doOrigDataSend() for %v", s.Inbox))
 	panicOn(err)
 
-	if pack.BrokerAcked != nil {
-		s.Net.Flush()
-		pack.BrokerAcked.Bcast(lfs)
-	}
-
 	return lfs
 }
 

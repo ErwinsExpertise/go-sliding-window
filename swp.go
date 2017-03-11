@@ -158,14 +158,11 @@ type Packet struct {
 
 	Data []byte
 
-	// those waiting for when it is acked by the
+	// those waiting for when this particular
+	// Packet is acked by the
 	// recipient can allocate a bchan.New(1) here and wait for a
 	// channel receive on <-CliAcked.Ch
 	CliAcked *bchan.Bchan `msg:"-"` // omit from serialization
-
-	// if you only want to wait until the broker has it, you
-	// can allocate a Bchan and assign it here.
-	BrokerAcked *bchan.Bchan `msg:"-"` // omit from serialization
 }
 
 // SWP holds the Sliding Window Protocol state

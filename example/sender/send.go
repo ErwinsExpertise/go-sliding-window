@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/glycerine/bchan"
-	"github.com/glycerine/hnatsd/swp"
+	"github.com/glycerine/go-sliding-window"
 )
 
 func main() {
@@ -68,9 +68,10 @@ func main() {
 	// writer does:
 	ca := bchan.New(1)
 	A.Push(&swp.Packet{
-		From:     "A",
-		Dest:     "B",
-		Data:     []byte("hello world"),
+		From: "A",
+		Dest: "B",
+		Data: []byte("hello world"),
+
 		CliAcked: ca,
 	})
 	// wait for receiver to ack it.

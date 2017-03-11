@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/glycerine/hnatsd/swp"
+	"github.com/glycerine/go-sliding-window"
 )
 
 func main() {
