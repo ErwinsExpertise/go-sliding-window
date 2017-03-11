@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/glycerine/idem"
 )
 
 // TxqSlot is the sender's sliding window element.
@@ -39,8 +41,7 @@ type SenderState struct {
 	BlockingSend chan *Packet
 	GotPack      chan *Packet
 
-	ReqStop      chan bool
-	Done         chan bool
+	Halt         *idem.Halter
 	SendHistory  []*Packet
 	SendSz       int64
 	SendAck      chan *Packet
@@ -95,8 +96,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		Timeout:          timeout,
 		LastFrameSent:    -1,
 		LastAckRec:       -1,
-		ReqStop:          make(chan bool),
-		Done:             make(chan bool),
+		Halt:             idem.NewHalter(),
 		SendHistory:      make([]*Packet, 0),
 		BlockingSend:     make(chan *Packet),
 		SendSz:           sendSz,
@@ -181,7 +181,8 @@ func (s *SenderState) Start(sess *Session) {
 		// shutdown stuff, all in one place for consistency
 		defer func() {
 			close(s.SenderShutdown) // stops the receiver
-			close(s.Done)
+			s.Halt.ReqStop.Close()
+			s.Halt.Done.Close()
 			close(sess.Done) // lets clients detect shutdown
 		}()
 
@@ -299,7 +300,7 @@ func (s *SenderState) Start(sess *Session) {
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
 
-			case <-s.ReqStop:
+			case <-s.Halt.ReqStop.Chan:
 				return
 			case pack := <-acceptSend:
 				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
@@ -383,14 +384,8 @@ func (s *SenderState) Start(sess *Session) {
 
 // Stop the SenderState componennt
 func (s *SenderState) Stop() {
-	s.mut.Lock()
-	select {
-	case <-s.ReqStop:
-	default:
-		close(s.ReqStop)
-	}
-	s.mut.Unlock()
-	<-s.Done
+	s.Halt.RequestStop()
+	<-s.Halt.Done.Chan
 }
 
 // for first time sends of data, not retries or acks.
@@ -459,6 +454,33 @@ func (s *SenderState) doKeepAlive() {
 		DataSendTm:          now,
 		AckRetry:            -777,
 		KeepAlive:           true,
+		AvailReaderBytesCap: flow.AvailReaderBytesCap,
+		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
+
+		FromRttEstNsec: int64(s.rtt.GetEstimate()),
+		FromRttSdNsec:  int64(s.rtt.GetSd()),
+		FromRttN:       s.rtt.N,
+	}
+	//q("%v doing keepalive Net.Send()", s.Inbox)
+	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
+	panicOn(err)
+
+	s.keepAlive = time.After(s.KeepAliveInterval)
+}
+
+func (s *SenderState) doSendClose() {
+	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
+	now := s.Clk.Now()
+	s.LastSendTime = now
+	kap := &Packet{
+		From:                s.Inbox,
+		Dest:                s.Dest,
+		SeqNum:              -888, // => close
+		SeqRetry:            -888,
+		DataSendTm:          now,
+		AckRetry:            -888,
+		KeepAlive:           false,
+		Closing:             true,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 

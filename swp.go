@@ -118,6 +118,7 @@ type Packet struct {
 
 	AckOnly   bool // identifies an Acknowledgement packet
 	KeepAlive bool
+	Closing   bool
 
 	// AvailReaderByteCap and AvailReaderMsgCap are
 	// like the byte count AdvertisedWindow in TCP, but
@@ -317,7 +318,7 @@ func (s *Session) Push(pack *Packet) {
 	case s.Swp.Sender.BlockingSend <- pack:
 		q("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
 		s.IncrPacketsSentForTransfer(1)
-	case <-s.Swp.Sender.ReqStop:
+	case <-s.Swp.Sender.Halt.ReqStop.Chan:
 		// give up, Sender is shutting down.
 	}
 }
@@ -329,7 +330,7 @@ func (s *Session) SelfConsumeForTesting() {
 	go func() {
 		for {
 			select {
-			case <-s.Swp.Recver.ReqStop:
+			case <-s.Swp.Recver.Halt.ReqStop.Chan:
 				return
 			case read := <-s.ReadMessagesCh:
 				s.IncrPacketsReadConsumed(int64(len(read.Seq)))

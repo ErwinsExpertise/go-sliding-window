@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/glycerine/idem"
 )
 
 // RxqSlot is the receiver's sliding window element.
@@ -27,8 +29,9 @@ type RecvState struct {
 
 	MsgRecv chan *Packet
 
-	ReqStop chan bool
-	Done    chan bool
+	Halt *idem.Halter
+	//	ReqStop chan bool
+	//	Done    chan bool
 
 	RecvSz       int64
 	DiscardCount int64
@@ -92,8 +95,7 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 		Rxq:                 make([]*RxqSlot, recvSz),
 		Timeout:             timeout,
 		RecvHistory:         make([]*Packet, 0),
-		ReqStop:             make(chan bool),
-		Done:                make(chan bool),
+		Halt:                idem.NewHalter(),
 		RecvSz:              recvSz,
 		snd:                 snd,
 		RcvdButNotConsumed:  make(map[int64]*Packet),
@@ -138,7 +140,11 @@ func (r *RecvState) Start() error {
 	var delivery InOrderSeq
 
 	go func() {
-		defer r.cleanupOnExit()
+		defer func() {
+			r.Halt.RequestStop()
+			r.Halt.MarkDone()
+			r.cleanupOnExit()
+		}()
 
 	recvloop:
 		for {
@@ -179,13 +185,11 @@ func (r *RecvState) Start() error {
 				}
 				r.LastByteConsumed = delivery.Seq[0].CumulBytesTransmitted - int64(len(delivery.Seq[0].Data))
 				r.ReadyForDelivery = r.ReadyForDelivery[:0]
-			case <-r.ReqStop:
+			case <-r.Halt.ReqStop.Chan:
 				//p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
-				close(r.Done)
 				return
 			case <-r.snd.SenderShutdown:
 				//p("recvloop: got <-r.snd.SenderShutdown")
-				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
 				//p("%v recvloop sees packet '%#v'", r.Inbox, pack)
@@ -207,8 +211,7 @@ func (r *RecvState) Start() error {
 					case r.asapHelper.enqueue <- pack:
 					case <-time.After(100 * time.Millisecond):
 						// drop packet; note there may be gaps in SeqNum on Asap b/c of this.
-					case <-r.ReqStop:
-						close(r.Done)
+					case <-r.Halt.ReqStop.Chan:
 						return
 					}
 				}
@@ -231,14 +234,16 @@ func (r *RecvState) Start() error {
 				cp := CopyPacketSansData(pack)
 				select {
 				case r.snd.GotPack <- cp:
-				case <-r.ReqStop:
-					close(r.Done)
+				case <-r.Halt.ReqStop.Chan:
 					return
 				}
 				if !pack.AckOnly {
 					if pack.KeepAlive {
 						r.ack(r.NextFrameExpected-1, pack)
 						continue recvloop
+					}
+					if pack.Closing {
+
 					}
 					// actual data received, receiver side stuff
 
@@ -356,14 +361,8 @@ func (r *RecvState) ack(seqno int64, pack *Packet) {
 
 // Stop the RecvState componennt
 func (r *RecvState) Stop() {
-	r.mut.Lock()
-	select {
-	case <-r.ReqStop:
-	default:
-		close(r.ReqStop)
-	}
-	r.mut.Unlock()
-	<-r.Done
+	r.Halt.ReqStop.Close()
+	<-r.Halt.Done.Chan
 }
 
 // HeldAsString turns r.RcvdButNotConsumed into
