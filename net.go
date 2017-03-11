@@ -10,4 +10,7 @@ type Network interface {
 
 	// Listen starts receiving packets addressed to inbox on the returned channel.
 	Listen(inbox string) (chan *Packet, error)
+
+	// Flush waits for roundtrip to gnatsd broker to complete
+	Flush()
 }

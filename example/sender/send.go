@@ -65,13 +65,12 @@ func main() {
 	A.SelfConsumeForTesting() // read any acks
 
 	// writer does:
-	A.Push(&swp.Packet{
+	A.PushGetAck(&swp.Packet{
 		From: "A",
 		Dest: "B",
 		Data: []byte("hello world"),
 	})
 	// reader does: <-A.ReadMessagesCh
-	time.Sleep(time.Second)
 	A.Stop()
 }
 

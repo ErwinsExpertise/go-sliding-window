@@ -64,3 +64,7 @@ func (n *NatsNet) Stop() {
 	n.Halt.RequestStop()
 	n.Halt.Done.Close()
 }
+
+func (n *NatsNet) Flush() {
+	n.Cli.Nc.Flush()
+}

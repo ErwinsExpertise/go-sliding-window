@@ -325,6 +325,29 @@ func (s *Session) Push(pack *Packet) {
 	}
 }
 
+// PushGetAck is like Push, but waits for an
+// ack from the gnatsd broker before returning.
+// This is useful if you are going to close the
+// program after the send, but actually want
+// the send to get through before closing.
+func (s *Session) PushGetAck(pack *Packet) {
+	select {
+	case s.Swp.Sender.BlockingSendGetAck <- pack:
+		//p("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
+		s.IncrPacketsSentForTransfer(1)
+		// wait for ack back from broker
+		select {
+		case <-s.Swp.Sender.BcastSent.Ch:
+			// got ack, ok
+			s.Swp.Sender.BcastSent.BcastAck()
+		case <-s.Swp.Sender.Halt.ReqStop.Chan:
+			// give up; shutting down
+		}
+	case <-s.Swp.Sender.Halt.ReqStop.Chan:
+		// give up, Sender is shutting down.
+	}
+}
+
 // SelfConsumeForTesting sets up a reader to read all produced
 // messages automatically. You can use CountPacketsReadConsumed() to
 // see the total number consumed thus far.

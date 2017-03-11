@@ -222,3 +222,7 @@ func HistoryEqual(a, b []*Packet) bool {
 	}
 	return true
 }
+
+func (net *SimNet) Flush() {
+
+}
