@@ -9,7 +9,7 @@ import (
 // so that sender and receiver don't trample reads/writes.
 type FlowCtrl struct {
 	mut  sync.Mutex
-	flow Flow
+	Flow Flow
 }
 
 // FlowCtrl data is shared by sender and receiver,
@@ -68,7 +68,7 @@ type Flow struct {
 func (r *FlowCtrl) GetFlow() Flow {
 	r.mut.Lock()
 	defer r.mut.Unlock()
-	cp := r.flow
+	cp := r.Flow
 	return cp
 }
 
@@ -77,7 +77,7 @@ func (r *FlowCtrl) GetFlow() Flow {
 // It returns the latest
 // info in the Flow structure.
 //
-// Updates r.flow.RemoteRttEstNsec from pack,
+// Updates r.Flow.RemoteRttEstNsec from pack,
 // since if pack is non-nil, it is coming from
 // the receiver.
 //
@@ -91,16 +91,16 @@ func (r *FlowCtrl) UpdateFlow(who string, net Network,
 	r.mut.Lock()
 	defer r.mut.Unlock()
 	if availReaderMsgCap >= 0 {
-		r.flow.AvailReaderMsgCap = availReaderMsgCap
+		r.Flow.AvailReaderMsgCap = availReaderMsgCap
 	}
 	if availReaderBytesCap >= 0 {
-		r.flow.AvailReaderBytesCap = availReaderBytesCap
+		r.Flow.AvailReaderBytesCap = availReaderBytesCap
 	}
-	if pack != nil && pack.FromRttN > r.flow.RemoteRttN {
-		r.flow.RemoteRttEstNsec = pack.FromRttEstNsec
-		r.flow.RemoteRttSdNsec = pack.FromRttSdNsec
-		r.flow.RemoteRttN = pack.FromRttN
+	if pack != nil && pack.FromRttN > r.Flow.RemoteRttN {
+		r.Flow.RemoteRttEstNsec = pack.FromRttEstNsec
+		r.Flow.RemoteRttSdNsec = pack.FromRttSdNsec
+		r.Flow.RemoteRttN = pack.FromRttN
 	}
-	cp := r.flow
+	cp := r.Flow
 	return cp
 }

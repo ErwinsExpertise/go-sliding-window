@@ -74,3 +74,59 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 		cv.So(held, cv.ShouldEqual, 0)
 	})
 }
+
+func Test020DetectOtherEndShutdown(t *testing.T) {
+
+	cv.Convey("When the other end of our session disappears, we should detect this and close up the session. We can't continue the session if the sequence numbers aren't aligned, so there's no point in waiting around once the other endpoint stops. e.g. For example any new session that starts sending with a sequence of 0 will just have its packet dropped if the receiver has already received a packet 0 in that session.", t, func() {
+
+		lossProb := float64(0)
+		lat := time.Millisecond
+		net := NewSimNet(lossProb, lat)
+		rtt := 2 * lat
+
+		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			NumFailedKeepAlivesBeforeClosing: 50})
+		panicOn(err)
+		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		panicOn(err)
+
+		p1 := &Packet{
+			From: "A",
+			Dest: "B",
+			Data: []byte("one"),
+		}
+
+		A.Push(p1)
+
+		time.Sleep(100 * time.Millisecond)
+		held := <-B.Swp.Recver.NumHeldMessages
+
+		cv.So(held, cv.ShouldEqual, 1)
+
+		packetsConsumed := 0
+		read := <-B.ReadMessagesCh
+		for i := range read.Seq {
+			p("B consumer sees packet '%#v', paystuff '%s'", read.Seq[i], string(read.Seq[i].Data))
+			packetsConsumed++
+		}
+
+		held = <-B.Swp.Recver.NumHeldMessages
+		cv.So(held, cv.ShouldEqual, 0)
+		cv.So(packetsConsumed, cv.ShouldEqual, 1)
+		p("good: got first packet delivery")
+
+		// stop B and want A to notice and shutdow, closing Done.
+		p("just prior to B.Stop()")
+		B.Stop()
+		p("just after B.Stop()")
+		select {
+		case <-A.Done:
+		case <-time.After(time.Second * 10):
+			panic("should have gotten Done by now")
+		}
+		// should get here
+		cv.So(true, cv.ShouldEqual, true)
+	})
+}

@@ -2,7 +2,7 @@ package swp
 
 import (
 	"fmt"
-	"github.com/nats-io/nats"
+	"github.com/glycerine/nats"
 )
 
 // SubReport is the output of ReportOnSubscriptions.

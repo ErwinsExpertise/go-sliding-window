@@ -1,7 +1,7 @@
 package swp
 
 import (
-	"github.com/nats-io/nats"
+	"github.com/glycerine/nats"
 	"sync"
 )
 

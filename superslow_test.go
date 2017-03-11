@@ -46,7 +46,7 @@ func Test108ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	host := "127.0.0.1"
 	port := getAvailPort()
-	gnats := startGnatsd(host, port)
+	gnats := StartGnatsd(host, port)
 	defer func() {
 		p("calling gnats.Shutdown()")
 		gnats.Shutdown() // when done

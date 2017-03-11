@@ -43,7 +43,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 
 	host := "127.0.0.1"
 	port := getAvailPort()
-	gnats := startGnatsd(host, port)
+	gnats := StartGnatsd(host, port)
 	defer func() {
 		p("calling gnats.Shutdown()")
 		gnats.Shutdown() // when done
@@ -114,7 +114,7 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	// when trying to send 100 messages in a row.
 	msgLimit := int64(100)
 	bytesLimit := int64(500000)
-	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
+	B.Swp.Sender.FlowCt = &FlowCtrl{Flow: Flow{
 		ReservedByteCap: 500000,
 		ReservedMsgCap:  100,
 	}}
@@ -204,13 +204,13 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
 
-	B.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
+	B.Swp.Sender.FlowCt = &FlowCtrl{Flow: Flow{
 		ReservedByteCap:     64 * 1024,
 		ReservedMsgCap:      10,
 		AvailReaderBytesCap: 5000,
 		AvailReaderMsgCap:   1,
 	}}
-	A.Swp.Sender.FlowCt = &FlowCtrl{flow: Flow{
+	A.Swp.Sender.FlowCt = &FlowCtrl{Flow: Flow{
 		ReservedByteCap:     64 * 1024,
 		ReservedMsgCap:      10,
 		AvailReaderBytesCap: 5000,

@@ -142,17 +142,20 @@ func (r *RecvState) Start() error {
 
 	recvloop:
 		for {
-			//q("%v top of recvloop, receiver NFE: %v",
+			//p("%v top of recvloop, receiver NFE: %v",
 			// r.Inbox, r.NextFrameExpected)
 
 			deliverToConsumer = nil
 			if len(r.ReadyForDelivery) > 0 {
+				//p("have %v r.ReadyForDelivery", r.ReadyForDelivery)
 				delivery.Seq = r.ReadyForDelivery
 				deliverToConsumer = r.ReadMessagesCh
 			}
 
+			//p("recvloop: about to select")
 			select {
 			case helper := <-r.setAsapHelper:
+				//p("recvloop: got <-r.setAsapHelper")
 				// stop any old helper
 				if r.asapHelper != nil {
 					r.asapHelper.Stop()
@@ -163,23 +166,25 @@ func (r *RecvState) Start() error {
 				}
 
 			case r.NumHeldMessages <- int64(len(r.RcvdButNotConsumed)):
+				//p("recvloop: got <-r.RcvdButNotConsumed")
 
 			case deliverToConsumer <- delivery:
-				q("%v made deliverToConsumer delivery of %v packets starting with %v",
-					r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
+				//p("%v made deliverToConsumer delivery of %v packets starting with %v",
+				//	r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
 				for _, pack := range delivery.Seq {
-					q("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
-						r.Inbox, pack.SeqNum)
+					//q("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
+					//	r.Inbox, pack.SeqNum)
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
 					r.LastMsgConsumed = pack.SeqNum
 				}
 				r.LastByteConsumed = delivery.Seq[0].CumulBytesTransmitted - int64(len(delivery.Seq[0].Data))
 				r.ReadyForDelivery = r.ReadyForDelivery[:0]
 			case <-r.ReqStop:
-				//q("%v recvloop sees ReqStop, shutting down.", r.Inbox)
+				//p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
 				close(r.Done)
 				return
 			case <-r.snd.SenderShutdown:
+				//p("recvloop: got <-r.snd.SenderShutdown")
 				close(r.Done)
 				return
 			case pack := <-r.MsgRecv:
@@ -222,7 +227,7 @@ func (r *RecvState) Start() error {
 				// stuff has changed, so update
 				r.UpdateControl(pack)
 				// and tell snd about the new flow-control info
-				//q("%v tellng r.snd.GotAck <- as: '%#v'", r.Inbox, as)
+				//p("%v tellng r.snd.GotAck <- pack: '%#v'", r.Inbox, pack)
 				cp := CopyPacketSansData(pack)
 				select {
 				case r.snd.GotPack <- cp:
@@ -257,7 +262,7 @@ func (r *RecvState) Start() error {
 						// Notice that UDT went to time-based acks; acking only every k milliseconds.
 						// We may wish to experiment with that.
 						//
-						//q("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
+						//p("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
 						//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
 						//	r.NextFrameExpected+r.RecvWindowSize-1)
 						r.DiscardCount++
@@ -266,22 +271,22 @@ func (r *RecvState) Start() error {
 					}
 					slot.Received = true
 					slot.Pack = pack
-					//q("%v packet %#v queued for ordered delivery, checking to see if we can deliver now",
+					//p("%v packet %#v queued for ordered delivery, checking to see if we can deliver now",
 					//	r.Inbox, slot.Pack)
 
 					if pack.SeqNum == r.NextFrameExpected {
 						// horray, we can deliver one or more frames in order
 
-						//q("%v packet.SeqNum %v matches r.NextFrameExpected",
+						//p("%v packet.SeqNum %v matches r.NextFrameExpected",
 						//	r.Inbox, pack.SeqNum)
 						for slot.Received {
 
-							//q("%v actual in-order receive happening for SeqNum %v",
+							//p("%v actual in-order receive happening for SeqNum %v",
 							//	r.Inbox, slot.Pack.SeqNum)
 
 							r.ReadyForDelivery = append(r.ReadyForDelivery, slot.Pack)
 							r.RecvHistory = append(r.RecvHistory, slot.Pack)
-							//q("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
+							//p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
 
 							slot.Received = false
 							slot.Pack = nil
@@ -290,7 +295,7 @@ func (r *RecvState) Start() error {
 						}
 						r.ack(r.NextFrameExpected-1, pack)
 					} else {
-						//q("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
+						//p("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
 						//	r.Inbox, pack.SeqNum, r.NextFrameExpected)
 					}
 				}
@@ -372,6 +377,7 @@ func (r *RecvState) HeldAsString() string {
 }
 
 func (r *RecvState) cleanupOnExit() {
+	//p("RecvState.Inbox:%v cleanupOnExit is executing...", r.Inbox)
 	if r.asapHelper != nil {
 		r.asapHelper.Stop()
 	}

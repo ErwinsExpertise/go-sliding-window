@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nats-io/gnatsd/server"
-	gnatsd "github.com/nats-io/gnatsd/test"
-	"github.com/nats-io/nats"
+	"github.com/glycerine/hnatsd/server"
+	gnatsd "github.com/glycerine/hnatsd/test"
+	"github.com/glycerine/nats"
 	"io/ioutil"
 	"net"
 
@@ -23,7 +23,7 @@ func exampleSetup_test() {
 
 	host := "127.0.0.1"
 	port := getAvailPort()
-	gnats := startGnatsd(host, port)
+	gnats := StartGnatsd(host, port)
 	defer func() {
 		p("calling gnats.Shutdown()")
 		gnats.Shutdown() // when done
@@ -87,7 +87,7 @@ func getAvailPort() int {
 	return r.(*net.TCPAddr).Port
 }
 
-func startGnatsd(host string, port int) *server.Server {
+func StartGnatsd(host string, port int) *server.Server {
 	//serverList := fmt.Sprintf("nats://%v:%v", host, port)
 
 	// start yourself an embedded gnatsd server
@@ -96,6 +96,10 @@ func startGnatsd(host string, port int) *server.Server {
 		Port:  port,
 		Trace: true,
 		Debug: true,
+
+		// allow for nats-top:
+		HTTPHost: "127.0.0.1",
+		HTTPPort: 8888,
 	}
 	gnats := gnatsd.RunServer(&opts)
 	//gnats.SetLogger(&Logger{}, true, true)

@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/nats-io/nats"
+	"github.com/glycerine/nats"
 	"io/ioutil"
 	"strings"
 )

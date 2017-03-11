@@ -51,6 +51,11 @@ type SenderState struct {
 	KeepAliveInterval       time.Duration
 	keepAlive               <-chan time.Time
 
+	// after this many failed keepalives, we
+	// close down the session. Set to less than 1
+	// to disable the auto-close.
+	NumFailedKeepAlivesBeforeClosing int
+
 	SentButNotAcked map[int64]*TxqSlot
 
 	// flow control params
@@ -103,7 +108,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
 		KeepAliveInterval: 100 * time.Millisecond,
-		FlowCt: &FlowCtrl{flow: Flow{
+		FlowCt: &FlowCtrl{Flow: Flow{
 			// Control messages such as acks and keepalives
 			// should not be blocked by flow-control (for
 			// correctness/resumption from no-flow), so we need
@@ -172,6 +177,13 @@ func (s *SenderState) Start(sess *Session) {
 
 		regularIntervalWakeup := time.After(wakeFreq)
 
+		// shutdown stuff, all in one place for consistency
+		defer func() {
+			close(s.SenderShutdown) // stops the receiver
+			close(s.Done)
+			close(sess.Done) // lets clients detect shutdown
+		}()
+
 	sendloop:
 		for {
 			V("%v top of sendloop, sender LAR: %v, LFS: %v \n",
@@ -211,15 +223,17 @@ func (s *SenderState) Start(sess *Session) {
 
 			case <-regularIntervalWakeup:
 				now := s.Clk.Now()
-				q("%v regularIntervalWakeup at %v", s.Inbox, now)
+				//p("%v regularIntervalWakeup at %v", s.Inbox, now)
 
-				//if now.Sub(time.Hour).After(s.LastHeardFromDownstream) {
-				// it's been an hour, should we do something?
-				// well, have we been sending in this time? even
-				// s.LastSendTime might have been just a split
-				// second ago, so hard to know if we should close
-				// the connection. Let's leave it going for now.
-				//}
+				if s.NumFailedKeepAlivesBeforeClosing > 0 {
+					thresh := s.KeepAliveInterval * time.Duration(s.NumFailedKeepAlivesBeforeClosing)
+					//p("at regularInterval (every %v) doing check: SenderState.NumFailedKeepAlivesBeforeClosing=%v, checking for close after thresh %v (== %v * %v)", wakeFreq, s.NumFailedKeepAlivesBeforeClosing, thresh, s.KeepAliveInterval, s.NumFailedKeepAlivesBeforeClosing)
+					if now.Sub(s.LastHeardFromDownstream) > thresh {
+						// time to shutdown
+						//p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
+						return
+					}
+				}
 
 				// have any of our packets timed-out and need to be
 				// sent again?
@@ -230,17 +244,14 @@ func (s *SenderState) Start(sess *Session) {
 						retry = append(retry, slot)
 						if s.FailTracker != nil &&
 							s.FailTracker.AddEventCheckOverflow(now) {
-							q("s.FailTracker detected too many errors, " +
-								"terminating session")
+							//p("s.FailTracker detected too many errors, " +
+							//	"terminating session")
 							msg := fmt.Sprintf("Sender sees %v ack fails in "+
 								"window of %v, terminating session",
 								s.FailTracker.N, s.FailTracker.Window)
 							te := &TerminatedError{Msg: msg}
 							s.ExitErr = te
 							sess.ExitErr = te
-							close(s.SenderShutdown) // stops the receiver
-							close(s.Done)
-							close(sess.Done) // lets clients detect shutdown
 							return
 						}
 					}
@@ -286,7 +297,6 @@ func (s *SenderState) Start(sess *Session) {
 				regularIntervalWakeup = time.After(wakeFreq)
 
 			case <-s.ReqStop:
-				close(s.Done)
 				return
 			case pack := <-acceptSend:
 				q("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)

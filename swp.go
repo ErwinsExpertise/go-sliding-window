@@ -200,10 +200,14 @@ type Session struct {
 	ExitErr error
 
 	// Done is closed if session is terminated.
+	// This will happen if the remote session stops
+	// responding and is thus declared dead, as well
+	// as after an explicit close.
 	Done chan bool
 
-	packetsConsumed uint64
-	packetsSent     uint64
+	packetsConsumed                  uint64
+	packetsSent                      uint64
+	NumFailedKeepAlivesBeforeClosing int
 }
 
 // SessionConfig configures a Session.
@@ -227,6 +231,8 @@ type SessionConfig struct {
 	// how often we wakeup and check
 	// if packets need to be retried.
 	Timeout time.Duration
+
+	NumFailedKeepAlivesBeforeClosing int
 
 	// the clock (real or simulated) to use
 	Clk Clock
@@ -285,7 +291,9 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,
 		Done:        make(chan bool),
+		NumFailedKeepAlivesBeforeClosing: cfg.NumFailedKeepAlivesBeforeClosing,
 	}
+	sess.Swp.Sender.NumFailedKeepAlivesBeforeClosing = cfg.NumFailedKeepAlivesBeforeClosing
 	sess.Swp.Start(sess)
 	sess.ReadMessagesCh = sess.Swp.Recver.ReadMessagesCh
 
