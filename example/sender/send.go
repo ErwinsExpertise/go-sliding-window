@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/glycerine/bchan"
 	"github.com/glycerine/hnatsd/swp"
 )
 
@@ -65,11 +66,18 @@ func main() {
 	A.SelfConsumeForTesting() // read any acks
 
 	// writer does:
-	A.PushGetBrokerAck(&swp.Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("hello world"),
+	ca := bchan.New(1)
+	A.Push(&swp.Packet{
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("hello world"),
+		CliAcked: ca,
 	})
+	// wait for receiver to ack it.
+	<-ca.Ch
+	fmt.Printf("\nwe got end-to-end ack from receiver that packet was delivered\n")
+	ca.BcastAck()
+
 	// reader does: <-A.ReadMessagesCh
 	A.Stop()
 }

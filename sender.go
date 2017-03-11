@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/glycerine/bchan"
 	"github.com/glycerine/idem"
 )
 
@@ -24,6 +23,7 @@ type TxqSlot struct {
 //
 // Acks, retries, keep-alives, and original-data: these
 // are the four types of sends we do.
+// Also now a closing message is sent on shutdown.
 //
 type SenderState struct {
 	Clk              Clock
@@ -40,11 +40,6 @@ type SenderState struct {
 	// the main goroutine safe way to request
 	// sending a packet:
 	BlockingSend chan *Packet
-
-	// same as blocking send, but waits for
-	// gnatsd to ack the send, sending
-	// on BcastSent when that returns.
-	BlockingSendGetAck chan *Packet
 
 	GotPack chan *Packet
 
@@ -88,33 +83,29 @@ type SenderState struct {
 
 	// tell the receiver that sender is terminating
 	SenderShutdown chan bool
-
-	// monitoring sends
-	BcastSent *bchan.Bchan
 }
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 	inbox string, destInbox string, clk Clock, termCfg *TermConfig) *SenderState {
 	s := &SenderState{
-		Clk:                clk,
-		Net:                net,
-		Inbox:              inbox,
-		Dest:               destInbox,
-		SenderWindowSize:   sendSz,
-		Txq:                make([]*TxqSlot, sendSz),
-		Timeout:            timeout,
-		LastFrameSent:      -1,
-		LastAckRec:         -1,
-		Halt:               idem.NewHalter(),
-		SendHistory:        make([]*Packet, 0),
-		BlockingSend:       make(chan *Packet),
-		BlockingSendGetAck: make(chan *Packet),
-		SendSz:             sendSz,
-		GotPack:            make(chan *Packet),
-		SendAck:            make(chan *Packet),
-		SentButNotAcked:    make(map[int64]*TxqSlot),
-		SenderShutdown:     make(chan bool),
+		Clk:              clk,
+		Net:              net,
+		Inbox:            inbox,
+		Dest:             destInbox,
+		SenderWindowSize: sendSz,
+		Txq:              make([]*TxqSlot, sendSz),
+		Timeout:          timeout,
+		LastFrameSent:    -1,
+		LastAckRec:       -1,
+		Halt:             idem.NewHalter(),
+		SendHistory:      make([]*Packet, 0),
+		BlockingSend:     make(chan *Packet),
+		SendSz:           sendSz,
+		GotPack:          make(chan *Packet),
+		SendAck:          make(chan *Packet),
+		SentButNotAcked:  make(map[int64]*TxqSlot),
+		SenderShutdown:   make(chan bool),
 
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
@@ -150,7 +141,6 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		rtt:                     NewRTT(),
 		TermCfg:                 termCfg,
 		LastHeardFromDownstream: clk.Now(),
-		BcastSent:               bchan.New(1),
 	}
 	for i := range s.Txq {
 		s.Txq[i] = &TxqSlot{}
@@ -179,7 +169,7 @@ func (s *SenderState) Start(sess *Session) {
 
 	go func() {
 
-		var acceptSend, acceptSendGetAck chan *Packet
+		var acceptSend chan *Packet
 
 		// check for expired timers at wakeFreq
 		wakeFreq := s.Timeout / 2
@@ -208,7 +198,6 @@ func (s *SenderState) Start(sess *Session) {
 			// Block any new sends if so. We do a conditional receive. Start by
 			// assuming no:
 			acceptSend = nil
-			acceptSendGetAck = nil
 
 			// then check if we can set acceptSend.
 			//
@@ -216,15 +205,14 @@ func (s *SenderState) Start(sess *Session) {
 			// from the receiver allows it.
 			//
 			bytesInflight, msgInflight := s.ComputeInflight()
-			//q("%v bytesInflight = %v", s.Inbox, bytesInflight)
-			//q("%v msgInflight = %v", s.Inbox, msgInflight)
+			//p("%v bytesInflight = %v", s.Inbox, bytesInflight)
+			//p("%v msgInflight = %v", s.Inbox, msgInflight)
 
 			if s.LastSeenAvailReaderMsgCap-msgInflight > 0 &&
 				s.LastSeenAvailReaderBytesCap-bytesInflight > 0 {
 				//p("%v flow-control: okay to send. s.LastSeenAvailReaderMsgCap: %v > msgInflight: %v",
 				//	s.Inbox, s.LastSeenAvailReaderMsgCap, msgInflight)
 				acceptSend = s.BlockingSend
-				acceptSendGetAck = s.BlockingSendGetAck
 			} else {
 				//p("%v flow-control kicked in: not sending. s.LastSeenAvailReaderMsgCap = %v,"+
 				//	" msgInflight=%v, s.LastSeenAvailReaderBytesCap=%v bytesInflight=%v",
@@ -319,11 +307,7 @@ func (s *SenderState) Start(sess *Session) {
 				return
 			case pack := <-acceptSend:
 				//p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
-				s.doOrigDataSend(pack, false)
-
-			case pack := <-acceptSendGetAck:
-				//p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
-				s.doOrigDataSend(pack, true)
+				s.doOrigDataSend(pack)
 
 			case a := <-s.GotPack:
 				s.LastHeardFromDownstream = a.ArrivedAtDestTm
@@ -346,9 +330,18 @@ func (s *SenderState) Start(sess *Session) {
 
 				// need to update our map of SentButNotAcked
 				// and remove everything before AckNum, which is cumulative.
-				for _, slot := range s.SentButNotAcked {
+				for seqno, slot := range s.SentButNotAcked {
+					if seqno != slot.Pack.SeqNum {
+						panic("internal logic error; seqno should == slot.Pack.SeqNum")
+					}
 					if slot.Pack.SeqNum <= a.AckNum {
-						delete(s.SentButNotAcked, a.AckNum)
+						if slot.Pack.CliAcked != nil {
+							p("got ack for packet that has CliAcked on it; slot.Packet.SeqNum=%v", slot.Pack.SeqNum)
+							if slot.Pack.CliAcked != nil {
+								slot.Pack.CliAcked.Bcast(slot.Pack.SeqNum)
+							}
+						}
+						delete(s.SentButNotAcked, slot.Pack.SeqNum)
 					}
 				}
 
@@ -411,11 +404,13 @@ func (s *SenderState) Stop() {
 // If getAck is true, then we will call Flush on the
 // nats connection. This will wait for an ack from the
 // server (or timeout after 60 seconds).
-func (s *SenderState) doOrigDataSend(pack *Packet, getAck bool) {
-	//q("%v sender in acceptSend", s.Inbox)
+// Return the packet's sequence number, from
+// the LastFrameSent counter.
+func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
+	//p("%v sender in acceptSend", s.Inbox)
 
 	s.LastFrameSent++
-	//q("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
+	//p("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
 
 	s.TotalBytesSent += int64(len(pack.Data))
 	pack.CumulBytesTransmitted = s.TotalBytesSent
@@ -441,7 +436,7 @@ func (s *SenderState) doOrigDataSend(pack *Packet, getAck bool) {
 	slot.RetryDeadline = s.GetDeadline(now, flow)
 	s.LastSendTime = now
 
-	//q("%v doSend(), flow = '%#v'", s.Inbox, flow)
+	//p("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
 	pack.AvailReaderMsgCap = flow.AvailReaderMsgCap
 	pack.DataSendTm = now
@@ -454,10 +449,12 @@ func (s *SenderState) doOrigDataSend(pack *Packet, getAck bool) {
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doOrigDataSend() for %v", s.Inbox))
 	panicOn(err)
 
-	if getAck {
+	if pack.BrokerAcked != nil {
 		s.Net.Flush()
-		s.BcastSent.Bcast(s.LastFrameSent)
+		pack.BrokerAcked.Bcast(lfs)
 	}
+
+	return lfs
 }
 
 func (s *SenderState) doKeepAlive() {
@@ -465,7 +462,7 @@ func (s *SenderState) doKeepAlive() {
 		return
 	}
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
-	//q("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
+	//p("%v doKeepAlive(), flow = '%#v'", s.Inbox, flow)
 	// send a packet with no data, to elicit an ack
 	// with a new advertised window. This is
 	// *not* an ack, because we need it to be
@@ -488,7 +485,7 @@ func (s *SenderState) doKeepAlive() {
 		FromRttSdNsec:  int64(s.rtt.GetSd()),
 		FromRttN:       s.rtt.N,
 	}
-	//q("%v doing keepalive Net.Send()", s.Inbox)
+	//p("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	panicOn(err)
 
@@ -516,7 +513,7 @@ func (s *SenderState) doSendClosing() {
 		FromRttSdNsec:  int64(s.rtt.GetSd()),
 		FromRttN:       s.rtt.N,
 	}
-	//q("%v doing keepalive Net.Send()", s.Inbox)
+	//p("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	panicOn(err)
 
@@ -556,7 +553,7 @@ func (s *SenderState) UpdateRTT(pack *Packet) {
 		return
 	}
 
-	//q("%v pack.DataSendTm = %v", s.Inbox, pack.DataSendTm)
+	//p("%v pack.DataSendTm = %v", s.Inbox, pack.DataSendTm)
 	s.rtt.AddSample(obs)
 
 	//	sd := s.rtt.GetSd()

@@ -44,6 +44,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/glycerine/bchan"
 	"github.com/glycerine/idem"
 )
 
@@ -156,6 +157,15 @@ type Packet struct {
 	CumulBytesTransmitted int64
 
 	Data []byte
+
+	// those waiting for when it is acked by the
+	// recipient can allocate a bchan.New(1) here and wait for a
+	// channel receive on <-CliAcked.Ch
+	CliAcked *bchan.Bchan `msg:"-"` // omit from serialization
+
+	// if you only want to wait until the broker has it, you
+	// can allocate a Bchan and assign it here.
+	BrokerAcked *bchan.Bchan `msg:"-"` // omit from serialization
 }
 
 // SWP holds the Sliding Window Protocol state
@@ -333,32 +343,6 @@ func (s *Session) Push(pack *Packet) {
 	case s.Swp.Sender.BlockingSend <- pack:
 		//p("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
 		s.IncrPacketsSentForTransfer(1)
-	case <-s.Swp.Sender.Halt.ReqStop.Chan:
-		// give up, Sender is shutting down.
-	}
-}
-
-// PushGetBrokerAck is like Push, but waits for an
-// Flush() on the nast.Conn (ack from the
-// gnatsd broker) before returning.
-// This is useful if you are going to close the
-// program after the send, but actually want
-// the send to get through before closing.
-// Note that Flush will also return if we timeout trying to
-// contact the broker after 60 seconds.
-func (s *Session) PushGetBrokerAck(pack *Packet) {
-	select {
-	case s.Swp.Sender.BlockingSendGetAck <- pack:
-		//p("%v Push succeeded on payload '%s' into BlockingSend", s.MyInbox, string(pack.Data))
-		s.IncrPacketsSentForTransfer(1)
-		// wait for ack back from broker
-		select {
-		case <-s.Swp.Sender.BcastSent.Ch:
-			// got ack, ok
-			s.Swp.Sender.BcastSent.BcastAck()
-		case <-s.Swp.Sender.Halt.ReqStop.Chan:
-			// give up; shutting down
-		}
 	case <-s.Swp.Sender.Halt.ReqStop.Chan:
 		// give up, Sender is shutting down.
 	}

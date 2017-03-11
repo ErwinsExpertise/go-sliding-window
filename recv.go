@@ -125,7 +125,7 @@ func (r *RecvState) Start() error {
 	}
 	switch nn := r.Net.(type) {
 	case *NatsNet:
-		//q("%v receiver setting nats subscription buffer limits", r.Inbox)
+		//p("%v receiver setting nats subscription buffer limits", r.Inbox)
 		// NB: we have to allow somewhat *more* than than data
 		// limits to allow nats to deliver control messages such
 		// as acks and keep-alives.
@@ -181,7 +181,7 @@ func (r *RecvState) Start() error {
 				//p("%v made deliverToConsumer delivery of %v packets starting with %v",
 				//	r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
 				for _, pack := range delivery.Seq {
-					//q("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
+					//p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
 					//	r.Inbox, pack.SeqNum)
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
 					r.LastMsgConsumed = pack.SeqNum
