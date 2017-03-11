@@ -63,7 +63,7 @@ func Test015TerminationOfSessions(t *testing.T) {
 		}
 		msg := fmt.Sprintf("Sender sees %v ack fails in window of %v, terminating session",
 			tc.TermUnackedLimit, tc.TermWindowDur)
-		cv.So(A.ExitErr, cv.ShouldResemble, &TerminatedError{Msg: msg})
+		cv.So(A.GetErr(), cv.ShouldResemble, &TerminatedError{Msg: msg})
 		A.Stop()
 	})
 }

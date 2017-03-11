@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/glycerine/idem"
@@ -70,13 +71,14 @@ type SenderState struct {
 
 	// do synchronized access via GetFlow()
 	// and UpdateFlow(s.Net)
-	FlowCt         *FlowCtrl
-	TotalBytesSent int64
-	rtt            *RTT
+	FlowCt                 *FlowCtrl
+	TotalBytesSent         int64
+	TotalBytesSentAndAcked int64
+	rtt                    *RTT
 
 	// nil after Stop() unless we terminated the session
 	// due to too many outstanding acks
-	ExitErr error
+	exitErr error
 
 	FailTracker *EventRingBuf
 	TermCfg     *TermConfig
@@ -257,8 +259,8 @@ func (s *SenderState) Start(sess *Session) {
 								"window of %v, terminating session",
 								s.FailTracker.N, s.FailTracker.Window)
 							te := &TerminatedError{Msg: msg}
-							s.ExitErr = te
-							sess.ExitErr = te
+							s.SetErr(te)
+							sess.SetErr(te)
 							return
 						}
 					}
@@ -342,6 +344,12 @@ func (s *SenderState) Start(sess *Session) {
 							}
 						}
 						delete(s.SentButNotAcked, slot.Pack.SeqNum)
+						s.TotalBytesSentAndAcked += int64(len(slot.Pack.Data))
+						if slot.Pack.Accounting != nil {
+							nba := atomic.LoadInt64(&slot.Pack.Accounting.NumBytesAcked)
+							nba += int64(len(slot.Pack.Data))
+							atomic.StoreInt64(&slot.Pack.Accounting.NumBytesAcked, nba)
+						}
 					}
 				}
 
@@ -623,4 +631,17 @@ func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
 	//p("%v ema is %v", s.Inbox, ema)
 	//p("setting deadline of duration %v", fin)
 	return now.Add(fin)
+}
+
+func (s *SenderState) SetErr(err error) {
+	s.mut.Lock()
+	s.exitErr = err
+	s.mut.Unlock()
+}
+
+func (s *SenderState) GetErr() (err error) {
+	s.mut.Lock()
+	err = s.exitErr
+	s.mut.Unlock()
+	return
 }

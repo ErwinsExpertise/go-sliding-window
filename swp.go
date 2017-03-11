@@ -41,6 +41,7 @@ package swp
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -123,7 +124,7 @@ type Packet struct {
 	KeepAlive bool
 	Closing   bool
 
-	// AvailReaderByteCap and AvailReaderMsgCap are
+	// AvailReaderBytesCap and AvailReaderMsgCap are
 	// like the byte count AdvertisedWindow in TCP, but
 	// since nats has both byte and message count
 	// limits, we want convey these instead.
@@ -163,6 +164,8 @@ type Packet struct {
 	// recipient can allocate a bchan.New(1) here and wait for a
 	// channel receive on <-CliAcked.Ch
 	CliAcked *bchan.Bchan `msg:"-"` // omit from serialization
+
+	Accounting *ByteAccount `msg:"-"` // omit from serialization
 }
 
 // SWP holds the Sliding Window Protocol state
@@ -206,8 +209,9 @@ type Session struct {
 	ReadMessagesCh chan InOrderSeq
 
 	// if terminated with error,
-	// that error will live here
-	ExitErr error
+	// that error will live here. Retreive
+	// with GetErr()
+	exitErr error
 
 	// Halt.Done.Chan is closed if session is terminated.
 	// This will happen if the remote session stops
@@ -218,6 +222,8 @@ type Session struct {
 	packetsConsumed                  uint64
 	packetsSent                      uint64
 	NumFailedKeepAlivesBeforeClosing int
+
+	mut sync.Mutex
 }
 
 // SessionConfig configures a Session.
@@ -386,7 +392,7 @@ func InWindow(seqno, min, max int64) bool {
 // Stop shutsdown the session
 func (s *Session) Stop() {
 	s.Swp.Stop()
-	s.ExitErr = s.Swp.Sender.ExitErr
+	s.SetErr(s.Swp.Sender.GetErr())
 	s.Halt.RequestStop()
 	s.Halt.Done.Close()
 }
@@ -452,4 +458,85 @@ type ackCallbackFunc func(pack *Packet)
 // to s.Swp.recver.testModeOn(), or we will panic.
 func (s *Session) setPacketRecvCallback(cb ackCallbackFunc) {
 	s.Swp.Recver.testing.ackCb = cb
+}
+
+// Read implements io.Reader
+func (s *Session) Read(p []byte) (n int, err error) {
+	panic("TODO")
+	return
+}
+
+// ByteAccount should be accessed with
+// atomics to avoid data races.
+type ByteAccount struct {
+	NumBytesAcked int64
+}
+
+// Write implements io.Writer, chopping p into packet
+// sized pieces if need be, and sending then in order
+// over the flow-controlled Session s.
+func (s *Session) Write(p []byte) (n int, err error) {
+
+	// use atomics to access the ByteAccount.
+	// We attach this to our packets so that
+	// we don't get any residual left over acks
+	// that may have arrived late from another Write
+	// that happened before.
+	var ba ByteAccount
+
+	lenp := int64(len(p))
+	if lenp == 0 {
+		return 0, nil
+	}
+	sz := s.Cfg.WindowByteSz
+
+	npack := lenp / sz
+	if lenp-npack*sz > 0 {
+		npack++
+	}
+	ca := bchan.New(1)
+	for i := int64(0); i < npack; i++ {
+		pack := &Packet{
+			From:       s.MyInbox,
+			Dest:       s.Destination,
+			Data:       p[i*sz : int64Min((i+1)*sz, lenp)],
+			Accounting: &ba,
+		}
+		if i == npack-1 {
+			pack.CliAcked = ca
+		}
+		s.Push(pack)
+	}
+	select {
+	case <-ca.Ch:
+		fmt.Printf("\nwe got end-to-end ack from receiver that all packets were delivered\n")
+		ca.BcastAck()
+	case <-time.After(10 * time.Second):
+
+	case <-s.Halt.Done.Chan:
+	}
+
+	nba := int(atomic.LoadInt64(&ba.NumBytesAcked))
+	return nba, s.GetErr()
+}
+
+func int64Min(a, b int64) int64 {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func (s *Session) SetErr(err error) {
+	s.mut.Lock()
+	s.exitErr = err
+	s.mut.Unlock()
+}
+
+func (s *Session) GetErr() (err error) {
+	s.mut.Lock()
+	err = s.exitErr
+	s.mut.Unlock()
+	return
 }
