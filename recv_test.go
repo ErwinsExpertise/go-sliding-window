@@ -17,10 +17,12 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 		rtt := 2 * lat
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+		})
 		panicOn(err)
 		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+		})
 		panicOn(err)
 
 		p1 := &Packet{
@@ -86,10 +88,13 @@ func Test020DetectOtherEndShutdown(t *testing.T) {
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
 			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
-			NumFailedKeepAlivesBeforeClosing: 50})
+			NumFailedKeepAlivesBeforeClosing: 10,
+		})
 		panicOn(err)
 		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			NumFailedKeepAlivesBeforeClosing: 10,
+		})
 		panicOn(err)
 
 		p1 := &Packet{
@@ -101,7 +106,12 @@ func Test020DetectOtherEndShutdown(t *testing.T) {
 		A.Push(p1)
 
 		time.Sleep(100 * time.Millisecond)
-		held := <-B.Swp.Recver.NumHeldMessages
+		var held int64
+		select {
+		case held = <-B.Swp.Recver.NumHeldMessages:
+		case <-B.Done:
+			p("we see B.Done shutdown")
+		}
 
 		cv.So(held, cv.ShouldEqual, 1)
 

@@ -136,8 +136,9 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// the actual receiver over network.
 		LastSeenAvailReaderMsgCap:   sendSz,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
-		rtt:     NewRTT(),
-		TermCfg: termCfg,
+		rtt:                     NewRTT(),
+		TermCfg:                 termCfg,
+		LastHeardFromDownstream: clk.Now(),
 	}
 	for i := range s.Txq {
 		s.Txq[i] = &TxqSlot{}
@@ -228,7 +229,9 @@ func (s *SenderState) Start(sess *Session) {
 				if s.NumFailedKeepAlivesBeforeClosing > 0 {
 					thresh := s.KeepAliveInterval * time.Duration(s.NumFailedKeepAlivesBeforeClosing)
 					//p("at regularInterval (every %v) doing check: SenderState.NumFailedKeepAlivesBeforeClosing=%v, checking for close after thresh %v (== %v * %v)", wakeFreq, s.NumFailedKeepAlivesBeforeClosing, thresh, s.KeepAliveInterval, s.NumFailedKeepAlivesBeforeClosing)
-					if now.Sub(s.LastHeardFromDownstream) > thresh {
+					elap := now.Sub(s.LastHeardFromDownstream)
+					//p("elap = %v; s.LastHeardFromDownstream=%v", elap, s.LastHeardFromDownstream)
+					if elap > thresh {
 						// time to shutdown
 						//p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
 						return

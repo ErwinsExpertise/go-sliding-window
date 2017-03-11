@@ -232,6 +232,10 @@ type SessionConfig struct {
 	// if packets need to be retried.
 	Timeout time.Duration
 
+	// set to -1 to disable auto-close. If
+	// not set (or left at 0), then we default
+	// to 50 (so after 50 keep-alive intervals
+	// with no remote contact, we close the session).
 	NumFailedKeepAlivesBeforeClosing int
 
 	// the clock (real or simulated) to use
@@ -281,6 +285,11 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	if cfg.WindowByteSz < cfg.WindowMsgSz {
 		// guestimate
 		cfg.WindowByteSz = cfg.WindowMsgSz * 10 * 1024
+	}
+
+	// set default; user can set to -1 to deactivate auto-close.
+	if cfg.NumFailedKeepAlivesBeforeClosing == 0 {
+		cfg.NumFailedKeepAlivesBeforeClosing = 50
 	}
 
 	sess := &Session{
