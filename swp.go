@@ -179,9 +179,9 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
-	timeout time.Duration, inbox string, destInbox string, clk Clock, termCfg *TermConfig, keepAliveInterval time.Duration) *SWP {
+	timeout time.Duration, inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration) *SWP {
 
-	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, termCfg, keepAliveInterval)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, keepAliveInterval)
 	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk)
 	swp := &SWP{
 		Sender: snd,
@@ -319,7 +319,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	sess := &Session{
 		Cfg: &cfg,
 		Swp: NewSWP(cfg.Net, cfg.WindowMsgCount, cfg.WindowByteSz,
-			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk, &cfg.TermCfg,
+			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk,
 			cfg.KeepAliveInterval),
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,

@@ -87,9 +87,6 @@ type SenderState struct {
 	// due to too many outstanding acks
 	exitErr error
 
-	FailTracker *EventRingBuf
-	TermCfg     *TermConfig
-
 	// tell the receiver that sender is terminating
 	SenderShutdown chan bool
 
@@ -105,7 +102,7 @@ func (s *SenderState) SetRecvLastFrameClientConsumed(nfe int64) {
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
-	inbox string, destInbox string, clk Clock, termCfg *TermConfig, keepAliveInterval time.Duration) *SenderState {
+	inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration) *SenderState {
 	s := &SenderState{
 		Clk:                       clk,
 		Net:                       net,
@@ -158,17 +155,11 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		// the actual receiver over network.
 		LastSeenAvailReaderMsgCap:   sendSz,
 		LastSeenAvailReaderBytesCap: 1024 * 1024,
-		rtt:                     NewRTT(),
-		TermCfg:                 termCfg,
+		rtt: NewRTT(),
 		LastHeardFromDownstream: clk.Now(),
 	}
 	for i := range s.Txq {
 		s.Txq[i] = &TxqSlot{}
-	}
-	if s.TermCfg != nil {
-		if s.TermCfg.TermWindowDur > 0 && s.TermCfg.TermUnackedLimit > 0 {
-			s.FailTracker = NewEventRingBuf(s.TermCfg.TermUnackedLimit, s.TermCfg.TermWindowDur)
-		}
 	}
 	return s
 }
@@ -259,9 +250,6 @@ func (s *SenderState) Start(sess *Session) {
 					//p("elap = %v; s.LastHeardFromDownstream=%v", elap, s.LastHeardFromDownstream)
 					if elap > thresh {
 
-						// debug, don't close, leave it open.
-						continue
-
 						// time to shutdown
 						p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
 						return
@@ -271,7 +259,7 @@ func (s *SenderState) Start(sess *Session) {
 				// have any of our packets timed-out and need to be
 				// sent again?
 				retry := []*TxqSlot{}
-				//p("about to check s.FailTracker = %p", s.FailTracker)
+
 				s.SentButNotAckedByDeadline.deleteThroughDeadline(now,
 					func(slot *TxqSlot) {
 						s.SentButNotAckedBySeqNum.deleteSlot(slot)
@@ -281,24 +269,10 @@ func (s *SenderState) Start(sess *Session) {
 					})
 				if len(retry) > 0 {
 					///p("%v sender retry list is len %v", s.Inbox, len(retry))
-
-					if s.FailTracker != nil &&
-						s.FailTracker.AddEventCheckOverflow(now) {
-
-						// debug: don't return, continue
-						//continue
-
-						//p("s.FailTracker detected too many errors, " +
-						//	"terminating session")
-						msg := fmt.Sprintf("Sender sees %v ack fails in "+
-							"window of %v, terminating session",
-							s.FailTracker.N, s.FailTracker.Window)
-						te := &TerminatedError{Msg: msg}
-						s.SetErr(te)
-						sess.SetErr(te)
-					}
 				}
+
 				for _, slot := range retry {
+
 					// reset deadline and resend
 					now := s.Clk.Now()
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
