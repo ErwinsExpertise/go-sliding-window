@@ -179,19 +179,18 @@ func testrec(host string, nport int, gnats *server.Server, dest io.Writer, done 
 
 		senderClosed := make(chan bool)
 		B.Swp.Recver.AppCloseCallback = func() {
-			p("AppCloseCallback called. B.Swp.Recver.LastFrameClientConsumed=%v",
-				B.Swp.Recver.LastFrameClientConsumed)
+			//p("AppCloseCallback called. B.Swp.Recver.LastFrameClientConsumed=%v", B.Swp.Recver.LastFrameClientConsumed)
 			close(senderClosed)
 		}
 
 		var n, ntot int64
 		var expectedSeqNum int64
 		for {
-			fmt.Printf("\n ... about to receive on B.ReadMessagesCh %p\n", B.ReadMessagesCh)
+			//fmt.Printf("\n ... about to receive on B.ReadMessagesCh %p\n", B.ReadMessagesCh)
 			select {
 			case seq := <-B.ReadMessagesCh:
-				ns := len(seq.Seq)
-				fmt.Fprintf(os.Stderr, "\n B filetransfer_test testrec() got sequence len %v from B.ReadMessagesCh. SeqNum:[%v, %v]\n", ns, seq.Seq[0].SeqNum, seq.Seq[ns-1].SeqNum)
+				//ns := len(seq.Seq)
+				//fmt.Fprintf(os.Stderr, "\n B filetransfer_test testrec() got sequence len %v from B.ReadMessagesCh. SeqNum:[%v, %v]\n", ns, seq.Seq[0].SeqNum, seq.Seq[ns-1].SeqNum)
 				for k, pk := range seq.Seq {
 					if pk.SeqNum != expectedSeqNum {
 						panic(fmt.Sprintf(
@@ -203,7 +202,8 @@ func testrec(host string, nport int, gnats *server.Server, dest io.Writer, done 
 					var from int64
 					for {
 						n, err = io.Copy(dest, bytes.NewBuffer(pk.Data[from:]))
-						fmt.Fprintf(os.Stderr, "\n %v-th io.Copy gave n=%v, err=%v\n", k, n, err)
+						_ = k
+						//fmt.Fprintf(os.Stderr, "\n %v-th io.Copy gave n=%v, err=%v\n", k, n, err)
 						ntot += n
 						if err == io.ErrShortWrite {
 							p("hanlding io.ErrShortWrite in copy loop")
@@ -215,7 +215,7 @@ func testrec(host string, nport int, gnats *server.Server, dest io.Writer, done 
 					}
 					panicOn(err)
 					//fmt.Printf("\n")
-					fmt.Fprintf(os.Stderr, "\ndone with latest io.Copy, err was nil. n=%v, ntot=%v\n", n, ntot)
+					//fmt.Fprintf(os.Stderr, "\ndone with latest io.Copy, err was nil. n=%v, ntot=%v\n", n, ntot)
 				}
 			case <-B.Halt.Done.Chan:
 				fmt.Printf("recv got B.Done\n")
