@@ -516,7 +516,7 @@ func (s *SenderState) doKeepAlive() {
 // correct?
 //
 func (s *SenderState) doSendClosing() {
-	p("%s doSendClosing() running", s.Inbox)
+	//p("%s doSendClosing() running", s.Inbox)
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
 	now := s.Clk.Now()
 	s.LastSendTime = now

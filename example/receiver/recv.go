@@ -26,7 +26,7 @@ func main() {
 	nport, err := strconv.Atoi(port)
 	panicOn(err)
 
-	fmt.Printf("contacting nats://%v:%v\n", host, port)
+	fmt.Fprintf(os.Stderr, "contacting nats://%v:%v\n", host, port)
 
 	// ===============================
 	// setup nats client for a subscriber
@@ -54,7 +54,7 @@ restart:
 		//fmt.Printf("recv.go is setting up NewSession...\n")
 		to := time.Millisecond * 100
 		B, err := swp.NewSession(swp.SessionConfig{Net: bnet, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 1000, WindowByteSz: -1, Timeout: to, Clk: swp.RealClk,
+			WindowMsgCount: 1000, WindowByteSz: -1, Timeout: to, Clk: swp.RealClk,
 			NumFailedKeepAlivesBeforeClosing: -1,
 		})
 		panicOn(err)
@@ -70,17 +70,28 @@ restart:
 		}}
 		swp.SetSubscriptionLimits(sub.Scrip, msgLimit, bytesLimit)
 
-		B.SelfConsumeForTesting() // read any acks
-
+		var n, ntot int64
 		for {
 			//fmt.Printf("\n ... about to receive on B.ReadMessagesCh %p\n", B.ReadMessagesCh)
 			select {
 			case seq := <-B.ReadMessagesCh:
+				//fmt.Fprintf(os.Stderr, "\n recv.go got sequence len %v from B.ReadMessagesCh\n", len(seq.Seq))
 				for _, pk := range seq.Seq {
-					_, err := io.Copy(os.Stdout, bytes.NewBuffer(pk.Data))
+					// copy to Stdout, handling short writes only.
+					var from int64
+					for {
+						n, err = io.Copy(os.Stdout, bytes.NewBuffer(pk.Data[from:]))
+						ntot += n
+						if err == io.ErrShortWrite {
+							from += n
+							continue
+						} else {
+							break
+						}
+					}
 					panicOn(err)
-					fmt.Printf("\n")
-					//fmt.Printf("\ndone with latest io.Copy, err was nil.\n")
+					//fmt.Printf("\n")
+					//fmt.Fprintf(os.Stderr, "\ndone with latest io.Copy, err was nil. n=%v, ntot=%v\n", n, ntot)
 				}
 			case <-B.Halt.Done.Chan:
 				//fmt.Printf("recv got B.Done\n")

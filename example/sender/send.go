@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/glycerine/bchan"
 	"github.com/glycerine/go-sliding-window"
 )
 
@@ -25,7 +25,7 @@ func main() {
 	nport, err := strconv.Atoi(port)
 	panicOn(err)
 
-	fmt.Printf("contacting nats://%v:%v\n", host, port)
+	fmt.Fprintf(os.Stderr, "contacting nats://%v:%v\n", host, port)
 
 	// ===============================
 	// setup nats client for a publisher
@@ -49,7 +49,7 @@ func main() {
 
 	to := time.Millisecond * 100
 	A, err := swp.NewSession(swp.SessionConfig{Net: anet, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 1000, WindowByteSz: -1, Timeout: to, Clk: swp.RealClk})
+		WindowMsgCount: 1000, WindowByteSz: 1 << 20, Timeout: to, Clk: swp.RealClk})
 	panicOn(err)
 
 	//rep := swp.ReportOnSubscription(pub.Scrip)
@@ -63,23 +63,20 @@ func main() {
 	}}
 	swp.SetSubscriptionLimits(pub.Scrip, msgLimit, bytesLimit)
 
-	A.SelfConsumeForTesting() // read any acks
-
 	// writer does:
-	ca := bchan.New(1)
-	A.Push(&swp.Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("hello world"),
+	buf := make([]byte, 1<<20)
+	// copy stdin over the wire
+	for {
+		_, err = io.CopyBuffer(A, os.Stdin, buf)
+		if err == io.ErrShortWrite {
+			continue
+		} else {
+			break
+		}
+	}
+	panicOn(err)
 
-		CliAcked: ca,
-	})
-	// wait for receiver to ack it.
-	<-ca.Ch
-	fmt.Printf("\nwe got end-to-end ack from receiver that packet was delivered\n")
-	ca.BcastAck()
-
-	// reader does: <-A.ReadMessagesCh
+	// reader does: <-A.ReadMessagesCh  in a loop
 	A.Stop()
 }
 
