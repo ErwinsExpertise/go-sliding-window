@@ -1,10 +1,12 @@
 package swp
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/glycerine/blake2b" // vendor https://github.com/dchest/blake2b
 	"github.com/glycerine/idem"
 )
 
@@ -16,16 +18,17 @@ type RxqSlot struct {
 
 // RecvState tracks the receiver's sliding window state.
 type RecvState struct {
-	Clk                 Clock
-	Net                 Network
-	Inbox               string
-	NextFrameExpected   int64
-	Rxq                 []*RxqSlot
-	RecvWindowSize      int64
-	RecvWindowSizeBytes int64
-	mut                 sync.Mutex
-	Timeout             time.Duration
-	RecvHistory         []*Packet
+	Clk                     Clock
+	Net                     Network
+	Inbox                   string
+	NextFrameExpected       int64
+	LastFrameClientConsumed int64
+	Rxq                     []*RxqSlot
+	RecvWindowSize          int64
+	RecvWindowSizeBytes     int64
+	mut                     sync.Mutex
+	Timeout                 time.Duration
+	RecvHistory             []*Packet
 
 	MsgRecv chan *Packet
 
@@ -72,6 +75,10 @@ type RecvState struct {
 	asapHelper    *AsapHelper
 	setAsapHelper chan *AsapHelper
 	testing       *testCfg
+
+	TcpState TcpState
+
+	AppCloseCallback func()
 }
 
 // InOrderSeq represents ordered (and gapless)
@@ -107,6 +114,7 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 		LastByteConsumed:    -1,
 		NumHeldMessages:     make(chan int64),
 		setAsapHelper:       make(chan *AsapHelper),
+		TcpState:            Established,
 	}
 
 	for i := range r.Rxq {
@@ -141,6 +149,8 @@ func (r *RecvState) Start() error {
 
 	go func() {
 		defer func() {
+			///p("%s RecvState defer/shutdown happening.", r.Inbox)
+			// are we closing too fast?
 			r.Halt.RequestStop()
 			r.Halt.MarkDone()
 			r.cleanupOnExit()
@@ -152,13 +162,15 @@ func (r *RecvState) Start() error {
 	recvloop:
 		for {
 			//p("%v top of recvloop, receiver NFE: %v",
-			// r.Inbox, r.NextFrameExpected)
+			//	r.Inbox, r.NextFrameExpected)
 
 			deliverToConsumer = nil
 			if len(r.ReadyForDelivery) > 0 {
-				//p("have %v r.ReadyForDelivery", r.ReadyForDelivery)
 				delivery.Seq = r.ReadyForDelivery
 				deliverToConsumer = r.ReadMessagesCh
+
+				//deliveryLen := len(delivery.Seq)
+				//p("%v recloop has len %v r.ReadyForDelivery, SeqNum from [%v, %v]", r.Inbox, len(r.ReadyForDelivery), delivery.Seq[0].SeqNum, delivery.Seq[deliveryLen-1].SeqNum)
 			}
 
 			//p("recvloop: about to select")
@@ -178,27 +190,45 @@ func (r *RecvState) Start() error {
 				//p("recvloop: got <-r.RcvdButNotConsumed")
 
 			case deliverToConsumer <- delivery:
-				//p("%v made deliverToConsumer delivery of %v packets starting with %v",
-				//	r.Inbox, len(delivery.Seq), delivery.Seq[0].SeqNum)
+				deliveryLen := len(delivery.Seq)
+				//p("%v made deliverToConsumer delivery of %v packets [%v, %v]", r.Inbox, deliveryLen, delivery.Seq[0].SeqNum, delivery.Seq[deliveryLen-1].SeqNum)
 				for _, pack := range delivery.Seq {
-					//p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v",
-					//	r.Inbox, pack.SeqNum)
+					///p("%v after delivery, deleting from r.RcvdButNotConsumed pack.SeqNum=%v", r.Inbox, pack.SeqNum)
 					delete(r.RcvdButNotConsumed, pack.SeqNum)
 					r.LastMsgConsumed = pack.SeqNum
 				}
 				r.LastByteConsumed = delivery.Seq[0].CumulBytesTransmitted - int64(len(delivery.Seq[0].Data))
-				r.ReadyForDelivery = r.ReadyForDelivery[:0]
+				r.ReadyForDelivery = make([]*Packet, 0)
+				lastPack := delivery.Seq[deliveryLen-1]
+				r.LastFrameClientConsumed = lastPack.SeqNum
+				r.ack(r.LastFrameClientConsumed, lastPack, EventDataAck)
+				delivery.Seq = nil
+
 			case <-r.Halt.ReqStop.Chan:
-				//p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
+				///p("%v recvloop sees ReqStop, shutting down.", r.Inbox)
 				return
 			case <-r.snd.SenderShutdown:
-				//p("recvloop: got <-r.snd.SenderShutdown")
+				///p("recvloop: got <-r.snd.SenderShutdown. note that len(r.RcvdButNotConsumed)=%v", len(r.RcvdButNotConsumed))
 				return
 			case pack := <-r.MsgRecv:
-				//p("%v recvloop sees packet '%#v'", r.Inbox, pack)
+				///p("%v recvloop sees packet.SeqNum '%v', event:'%s', AckNum:%v", r.Inbox, pack.SeqNum, pack.TcpEvent, pack.AckNum)
 				// test instrumentation, used e.g. in clock_test.go
 				if r.testing != nil && r.testing.incrementClockOnReceive {
 					r.Clk.(*SimClock).Advance(time.Second)
+				}
+
+				if len(pack.Data) > 0 {
+					chk := Blake2bOfBytes(pack.Data)
+					if 0 != bytes.Compare(pack.Blake2bChecksum, chk) {
+						p("expected checksum to be '%x', but was '%x'. For pack.SeqNum %v",
+							pack.Blake2bChecksum, chk, pack.SeqNum)
+						panic("data corruption detected by blake2b checksum")
+
+						// if we aren't going to panic, then at least drop the packet.
+						continue recvloop
+					} else {
+						//p("good: checksums match")
+					}
 				}
 
 				now := r.Clk.Now()
@@ -215,6 +245,7 @@ func (r *RecvState) Start() error {
 					case <-time.After(100 * time.Millisecond):
 						// drop packet; note there may be gaps in SeqNum on Asap b/c of this.
 					case <-r.Halt.ReqStop.Chan:
+						///p("r.Halt.ReqStop.Chan closed, returning.")
 						return
 					}
 				}
@@ -238,78 +269,88 @@ func (r *RecvState) Start() error {
 				select {
 				case r.snd.GotPack <- cp:
 				case <-r.Halt.ReqStop.Chan:
+					///p("r.Halt.ReqStop.Chan closed, returning.")
 					return
 				}
-				if !pack.AckOnly {
-					if pack.KeepAlive {
-						r.ack(r.NextFrameExpected-1, pack)
-						continue recvloop
-					}
-					if pack.Closing {
-						//p("%v recvloop sees pack.Closing from other end, shutting down.", r.Inbox)
+
+				// data, or info?
+				if pack.TcpEvent != EventData {
+					// info:
+					act := r.TcpState.UpdateTcp(pack.TcpEvent)
+					err := r.doTcpAction(act, pack)
+					if err == nil {
+						continue recvloop // debug: instead of return, keep going a little longer.
+					} else {
+						// err != nil is our indicator to exit
+						///p("doTcpAction returned err='%v', returning.", err)
 						return
 					}
-					// actual data received, receiver side stuff
+				}
+				// data: actual data received, receiver side stuff follows.
 
-					// if not old dup, add to hash of to-be-consumed
-					if pack.SeqNum >= r.NextFrameExpected {
-						r.RcvdButNotConsumed[pack.SeqNum] = pack
-						//p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
-						//r.Inbox, pack.SeqNum, r.HeldAsString())
+				// if not old dup, add to hash of to-be-consumed
+				if pack.SeqNum >= r.NextFrameExpected {
+					r.RcvdButNotConsumed[pack.SeqNum] = pack
+					//p("%v adding to r.RcvdButNotConsumed pack.SeqNum=%v   ... summary: %s",
+					//r.Inbox, pack.SeqNum, r.HeldAsString())
+				}
+
+				//p("len r.Rxq = %v", len(r.Rxq))
+				//p("pack=%#v", pack)
+				//p("pack.SeqNum=%v, r.RecvWindowSize=%v, pack.SeqNum%%r.RecvWindowSize=%v", pack.SeqNum, r.RecvWindowSize, pack.SeqNum%r.RecvWindowSize)
+				slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
+				if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
+					// Variation from textbook TCP: In the
+					// presence of packet loss, if we drop certain packets,
+					// the sender may re-try forever if we have non-overlapping windows.
+					// So we'll ack out of bounds known good values anyway.
+					// We could also do every K-th discard, but we want to get
+					// the flow control ramp-up-from-zero correct and not acking
+					// may inhibit that.
+					//
+					// Notice that UDT went to time-based acks; acking only every k milliseconds.
+					// We may wish to experiment with that.
+					//
+					//p("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
+					//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
+					//	r.NextFrameExpected+r.RecvWindowSize-1)
+					r.DiscardCount++
+					r.ack(r.LastFrameClientConsumed, pack, EventDataAck)
+					continue recvloop
+				}
+				slot.Received = true
+				slot.Pack = pack
+				//p("%v packet %#v queued for ordered delivery, checking to see if we can deliver now",
+				//	r.Inbox, slot.Pack)
+
+				if pack.SeqNum == r.NextFrameExpected {
+					// horray, we can deliver one or more frames in order
+
+					//p("%v packet.SeqNum %v matches r.NextFrameExpected",
+					//	r.Inbox, pack.SeqNum)
+					for slot.Received {
+
+						//p("%v actual in-order receive happening for SeqNum %v",
+						//	r.Inbox, slot.Pack.SeqNum)
+
+						r.ReadyForDelivery = append(r.ReadyForDelivery, slot.Pack)
+						r.RecvHistory = append(r.RecvHistory, slot.Pack)
+						//p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
+
+						slot.Received = false
+						slot.Pack = nil
+						r.NextFrameExpected++
+						slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
 					}
 
-					//p("len r.Rxq = %v", len(r.Rxq))
-					//p("pack=%#v", pack)
-					//p("pack.SeqNum=%v, r.RecvWindowSize=%v, pack.SeqNum%%r.RecvWindowSize=%v", pack.SeqNum, r.RecvWindowSize, pack.SeqNum%r.RecvWindowSize)
-					slot := r.Rxq[pack.SeqNum%r.RecvWindowSize]
-					if !InWindow(pack.SeqNum, r.NextFrameExpected, r.NextFrameExpected+r.RecvWindowSize-1) {
-						// Variation from textbook TCP: In the
-						// presence of packet loss, if we drop certain packets,
-						// the sender may re-try forever if we have non-overlapping windows.
-						// So we'll ack out of bounds known good values anyway.
-						// We could also do every K-th discard, but we want to get
-						// the flow control ramp-up-from-zero correct and not acking
-						// may inhibit that.
-						//
-						// Notice that UDT went to time-based acks; acking only every k milliseconds.
-						// We may wish to experiment with that.
-						//
-						//p("%v pack.SeqNum %v outside receiver's window [%v, %v], dropping it",
-						//	r.Inbox, pack.SeqNum, r.NextFrameExpected,
-						//	r.NextFrameExpected+r.RecvWindowSize-1)
-						r.DiscardCount++
-						r.ack(r.NextFrameExpected-1, pack)
-						continue recvloop
-					}
-					slot.Received = true
-					slot.Pack = pack
-					//p("%v packet %#v queued for ordered delivery, checking to see if we can deliver now",
-					//	r.Inbox, slot.Pack)
+					// update senders view of NextFrameExpected, for keep-alives.
+					r.snd.SetRecvLastFrameClientConsumed(r.LastFrameClientConsumed)
 
-					if pack.SeqNum == r.NextFrameExpected {
-						// horray, we can deliver one or more frames in order
-
-						//p("%v packet.SeqNum %v matches r.NextFrameExpected",
-						//	r.Inbox, pack.SeqNum)
-						for slot.Received {
-
-							//p("%v actual in-order receive happening for SeqNum %v",
-							//	r.Inbox, slot.Pack.SeqNum)
-
-							r.ReadyForDelivery = append(r.ReadyForDelivery, slot.Pack)
-							r.RecvHistory = append(r.RecvHistory, slot.Pack)
-							//p("%v r.RecvHistory now has length %v", r.Inbox, len(r.RecvHistory))
-
-							slot.Received = false
-							slot.Pack = nil
-							r.NextFrameExpected++
-							slot = r.Rxq[r.NextFrameExpected%r.RecvWindowSize]
-						}
-						r.ack(r.NextFrameExpected-1, pack)
-					} else {
-						//p("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
-						//	r.Inbox, pack.SeqNum, r.NextFrameExpected)
-					}
+					// not here, wait until delivered to consumer:
+					// r.ack(r.LastFrameClientConsumed, pack, EventDataAck)
+				} else {
+					//p("%v packet SeqNum %v was not NextFrameExpected %v; stored packet but not delivered.",
+					//	r.Inbox, pack.SeqNum, r.NextFrameExpected)
 				}
 			}
 		}
@@ -343,11 +384,16 @@ func (r *RecvState) UpdateControl(pack *Packet) {
 }
 
 // ack is a helper function, used in the recvloop above.
-// Currently seqno is always r.NextFrameExpected-1
-func (r *RecvState) ack(seqno int64, pack *Packet) {
+// Currently seqno is typically r.LastFrameClientConsumed
+func (r *RecvState) ack(seqno int64, pack *Packet, event TcpEvent) {
+	if pack.SeqNum < 0 {
+		// keepalives will have seqno negative, so don't freak out.
+	}
+	///p("%s RecvState.ack() is doing ack with event '%s' in state '%s', giving seqno=%v. LastFrameClientConsumed=%v", r.Inbox, event, r.TcpState, seqno, r.LastFrameClientConsumed)
+
 	r.UpdateControl(pack)
-	//p("%v about to send ack with AckNum: %v to %v",
-	//	r.Inbox, seqno, dest)
+	///p("%v about to ack with AckNum: %v to %v, sending in the ack TcpEvent: %s", r.Inbox, seqno, pack.From, event)
+
 	// send ack
 	now := r.Clk.Now()
 	ack := &Packet{
@@ -356,14 +402,23 @@ func (r *RecvState) ack(seqno int64, pack *Packet) {
 		SeqNum:              -99, // => ack flag
 		SeqRetry:            -99,
 		AckNum:              seqno,
-		AckOnly:             true,
+		TcpEvent:            event,
 		AvailReaderBytesCap: r.LastAvailReaderBytesCap,
 		AvailReaderMsgCap:   r.LastAvailReaderMsgCap,
 		AckRetry:            pack.SeqRetry,
 		AckReplyTm:          now,
 		DataSendTm:          pack.DataSendTm,
 	}
-	r.snd.SendAck <- ack
+	if len(r.snd.SendAck) == cap(r.snd.SendAck) {
+		p("warning: %s ack queue is at capacity, very bad!  dropping oldest ack packet so as to add this one AckNum:%v, with TcpEvent:%s.", r.Inbox, ack.AckNum, ack.TcpEvent)
+		<-r.snd.SendAck
+	}
+	select {
+	case r.snd.SendAck <- ack: // hung here
+	case <-time.After(time.Second * 10):
+		panic(fmt.Sprintf("%s receiver could not inform sender of ack after 10 seconds, something is seriously wrong internally--deadlock most likely. dropping ack packet AckNum:%v, with TcpEvent:%s.", r.Inbox, ack.AckNum, ack.TcpEvent))
+	case <-r.Halt.ReqStop.Chan:
+	}
 }
 
 // Stop the RecvState componennt
@@ -410,4 +465,40 @@ func CopyPacketSansData(p *Packet) *Packet {
 	cp := *p
 	cp.Data = nil
 	return &cp
+}
+
+func Blake2bOfBytes(by []byte) []byte {
+	h, err := blake2b.New(nil)
+	panicOn(err)
+	h.Write(by)
+	return []byte(h.Sum(nil))
+}
+
+func (r *RecvState) doTcpAction(act TcpAction, pack *Packet) error {
+	///p("%s doTcpAction received action '%s' in state '%s', in response to event '%s'", r.Inbox, act, r.TcpState, pack.TcpEvent)
+	switch act {
+	case NoAction:
+		return nil
+	case SendDataAck:
+		r.ack(r.LastFrameClientConsumed, pack, EventDataAck)
+	case SendSyn:
+		r.ack(r.LastFrameClientConsumed, pack, EventSyn)
+	case SendSynAck:
+		r.ack(r.LastFrameClientConsumed, pack, EventSynAck)
+	case SendEstabAck:
+		r.ack(r.LastFrameClientConsumed, pack, EventEstabAck)
+	case SendFin:
+		r.ack(r.LastFrameClientConsumed, pack, EventFin)
+	case SendFinAck:
+		r.ack(r.LastFrameClientConsumed, pack, EventFinAck)
+	case DoAppClose:
+		// after App has closed, then SendFinAck
+		if r.AppCloseCallback != nil {
+			r.AppCloseCallback()
+		}
+		r.ack(r.LastFrameClientConsumed, pack, EventFinAck)
+	default:
+		panic(fmt.Sprintf("unrecognized TcpAction act = %v", act))
+	}
+	return nil
 }

@@ -73,7 +73,7 @@ func (sim *SimNet) Listen(inbox string) (chan *Packet, error) {
 // annoation is optional and allows the logs to illumate
 // the purpose of each send (ack, keepAlive, data, etc).
 func (sim *SimNet) Send(pack *Packet, why string) error {
-	//p("in SimNet.Send(pack=%#v) why:'%v'", *pack, why)
+	p("in SimNet.Send(pack.SeqNum=%v) why:'%v'", pack.SeqNum, why)
 
 	// try to avoid data races and race detector problems by
 	// copying the packet here
@@ -105,8 +105,8 @@ func (sim *SimNet) Send(pack *Packet, why string) error {
 		sim.SimulateReorderNext = 0
 	}
 
-	if pack2.SeqNum == sim.DiscardOnce {
-		//q("sim: packet lost because %v SeqNum == DiscardOnce (%v)", pack2.SeqNum, sim.DiscardOnce)
+	if 0 <= pack2.SeqNum && pack2.SeqNum <= sim.DiscardOnce {
+		p("sim: packet lost/dropped because %v SeqNum <= DiscardOnce (%v)", pack2.SeqNum, sim.DiscardOnce)
 		sim.DiscardOnce = -1
 		return nil
 	}
@@ -215,9 +215,11 @@ func HistoryEqual(a, b []*Packet) bool {
 	}
 	for i := 0; i < na; i++ {
 		if a[i].SeqNum != b[i].SeqNum {
-			//p("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
-			//	i, a[i].SeqNum, b[i].SeqNum)
+			p("packet histories disagree at i=%v, a[%v].SeqNum = %v, while b[%v].SeqNum = %v",
+				i, a[i].SeqNum, b[i].SeqNum)
 			return false
+		} else {
+			p("packet histories both have SeqNum %v", a[i].SeqNum)
 		}
 	}
 	return true

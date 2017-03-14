@@ -25,18 +25,19 @@ func Test001Network(t *testing.T) {
 	net := NewSimNet(lossProb, lat)
 	rtt := 2 * lat
 
-	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
 
 	p1 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("one"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("one"),
+		TcpEvent: EventData,
 	}
 
 	A.Push(p1)
@@ -60,24 +61,33 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 	lossProb := float64(0)
 	lat := time.Millisecond
 	net := NewSimNet(lossProb, lat)
-	net.DiscardOnce = int64(0)
+	net.DiscardOnce = 1
 	rtt := 2 * lat
 
-	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
 
 	p1 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("one"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("one"),
+		TcpEvent: EventData,
+	}
+
+	p2 := &Packet{
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("two"),
+		TcpEvent: EventData,
 	}
 
 	A.Push(p1)
+	A.Push(p2)
 
 	time.Sleep(time.Second)
 
@@ -87,8 +97,8 @@ func Test002LostPacketTimesOutAndIsRetransmitted(t *testing.T) {
 	cv.Convey("Given two nodes A and B, if a packet from A to B is lost, the timeout mechanism in the sender should notice that it didn't get the ack, and should resend.", t, func() {
 		cv.So(A.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
 		//cv.So(B.Swp.Recver.DiscardCount, cv.ShouldEqual, 0)
-		cv.So(len(A.Swp.Sender.SendHistory), cv.ShouldEqual, 1)
-		cv.So(len(B.Swp.Recver.RecvHistory), cv.ShouldEqual, 1)
+		cv.So(len(A.Swp.Sender.SendHistory), cv.ShouldEqual, 2)
+		cv.So(len(B.Swp.Recver.RecvHistory), cv.ShouldEqual, 2)
 		cv.So(HistoryEqual(A.Swp.Sender.SendHistory, B.Swp.Recver.RecvHistory), cv.ShouldBeTrue)
 	})
 }
@@ -107,9 +117,9 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	// (and should) hang.
 	windowMsgSz := int64(2)
 
-	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgSz: windowMsgSz, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B", WindowMsgCount: windowMsgSz, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
-	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A", WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	// if LastSeenAvailReaderMsgCap is 1, then we never get
@@ -124,15 +134,17 @@ func Test003MisorderedPacketsAreReordered(t *testing.T) {
 	B.SelfConsumeForTesting()
 
 	p1 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("one"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("one"),
+		TcpEvent: EventData,
 	}
 
 	p2 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("two"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("two"),
+		TcpEvent: EventData,
 	}
 
 	net.SimulateReorderNext = 1
@@ -172,25 +184,27 @@ func Test004DuplicatedPacketIsDiscarded(t *testing.T) {
 	p("effectively turning off replays for this test")
 	rtt = time.Hour
 	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
 	B.SelfConsumeForTesting()
 
 	p2 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("two"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("two"),
+		TcpEvent: EventData,
 	}
 
 	p1 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("one"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("one"),
+		TcpEvent: EventData,
 	}
 
 	A.Push(p1)
@@ -223,10 +237,10 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	rtt := 3 * lat
 
 	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -236,9 +250,10 @@ func Test006AlgorithmWithstandsNoisyNetworks(t *testing.T) {
 	seq := make([]*Packet, n)
 	for i := range seq {
 		pack := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte(fmt.Sprintf("%v", i)),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte(fmt.Sprintf("%v", i)),
+			TcpEvent: EventData,
 		}
 		seq[i] = pack
 	}

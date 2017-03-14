@@ -71,7 +71,7 @@ import (
 //
 // Packets also flow symmetrically from Sender B to Receiver A.
 //
-// Special packets are AckOnly and KeepAlive
+// Special packets have AckOnly, KeepAlive, or Closing
 // flagged; otherwise normal packets are data
 // segments that have neither of these flags
 // set. Only normal data packets are tracked
@@ -120,11 +120,10 @@ type Packet struct {
 	AckRetry   int64
 	AckReplyTm time.Time
 
-	AckOnly   bool // identifies an Acknowledgement packet
-	KeepAlive bool
-	Closing   bool
+	// things like Fin, FinAck, DataAck, KeepAlive are
+	// all TcpEvents.
+	TcpEvent TcpEvent
 
-	// AvailReaderBytesCap and AvailReaderMsgCap are
 	// like the byte count AdvertisedWindow in TCP, but
 	// since nats has both byte and message count
 	// limits, we want convey these instead.
@@ -159,6 +158,9 @@ type Packet struct {
 
 	Data []byte
 
+	// checksum of Data
+	Blake2bChecksum []byte
+
 	// those waiting for when this particular
 	// Packet is acked by the
 	// recipient can allocate a bchan.New(1) here and wait for a
@@ -177,9 +179,9 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
-	timeout time.Duration, inbox string, destInbox string, clk Clock, termCfg *TermConfig) *SWP {
+	timeout time.Duration, inbox string, destInbox string, clk Clock, termCfg *TermConfig, keepAliveInterval time.Duration) *SWP {
 
-	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, termCfg)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, termCfg, keepAliveInterval)
 	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk)
 	swp := &SWP{
 		Sender: snd,
@@ -239,7 +241,7 @@ type SessionConfig struct {
 	DestInbox string
 
 	// capacity of our receive buffers in message count
-	WindowMsgSz int64
+	WindowMsgCount int64
 
 	// capacity of our receive buffers in byte count
 	WindowByteSz int64
@@ -247,6 +249,8 @@ type SessionConfig struct {
 	// how often we wakeup and check
 	// if packets need to be retried.
 	Timeout time.Duration
+
+	KeepAliveInterval time.Duration
 
 	// set to -1 to disable auto-close. If
 	// not set (or left at 0), then we default
@@ -266,7 +270,7 @@ type TermConfig struct {
 	TermWindowDur time.Duration
 
 	// how many unacked packets we can see inside
-	// TermWindowDur before giving up and termiating
+	// TermWindowDur before giving up and terminating
 	// the session. Ignored if 0.
 	TermUnackedLimit int
 }
@@ -294,13 +298,13 @@ type TermConfig struct {
 //
 func NewSession(cfg SessionConfig) (*Session, error) {
 
-	if cfg.WindowMsgSz < 1 {
+	if cfg.WindowMsgCount < 1 {
 		return nil, fmt.Errorf("windowMsgSz must be 1 or more")
 	}
 
-	if cfg.WindowByteSz < cfg.WindowMsgSz {
+	if cfg.WindowByteSz < cfg.WindowMsgCount {
 		// guestimate
-		cfg.WindowByteSz = cfg.WindowMsgSz * 10 * 1024
+		cfg.WindowByteSz = cfg.WindowMsgCount * 10 * 1024
 	}
 
 	// set default; user can set to -1 to deactivate auto-close.
@@ -308,10 +312,15 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		cfg.NumFailedKeepAlivesBeforeClosing = 50
 	}
 
+	if cfg.KeepAliveInterval == 0 {
+		cfg.KeepAliveInterval = time.Millisecond * 500
+	}
+
 	sess := &Session{
 		Cfg: &cfg,
-		Swp: NewSWP(cfg.Net, cfg.WindowMsgSz, cfg.WindowByteSz,
-			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk, &cfg.TermCfg),
+		Swp: NewSWP(cfg.Net, cfg.WindowMsgCount, cfg.WindowByteSz,
+			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk, &cfg.TermCfg,
+			cfg.KeepAliveInterval),
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,
@@ -391,6 +400,7 @@ func InWindow(seqno, min, max int64) bool {
 
 // Stop shutsdown the session
 func (s *Session) Stop() {
+	///p("%v Session.Stop called.", s.MyInbox)
 	s.Swp.Stop()
 	s.SetErr(s.Swp.Sender.GetErr())
 	s.Halt.RequestStop()
@@ -460,11 +470,25 @@ func (s *Session) setPacketRecvCallback(cb ackCallbackFunc) {
 	s.Swp.Recver.testing.ackCb = cb
 }
 
+/* not done
 // Read implements io.Reader
 func (s *Session) Read(p []byte) (n int, err error) {
-	panic("TODO")
+	orig := p
+	_ = orig
+	select {
+	case seq := <-s.ReadMessagesCh:
+		for _, pk := range seq.Seq {
+			m := copy(p, pk.Data)
+			p = p[:m]
+			panicOn(err)
+			fmt.Printf("\n")
+			//fmt.Printf("\ndone with latest io.Copy, err was nil.\n")
+		}
+	case <-s.Halt.Done.Chan:
+	}
 	return
 }
+*/
 
 // ByteAccount should be accessed with
 // atomics to avoid data races.
@@ -475,7 +499,7 @@ type ByteAccount struct {
 // Write implements io.Writer, chopping p into packet
 // sized pieces if need be, and sending then in order
 // over the flow-controlled Session s.
-func (s *Session) Write(p []byte) (n int, err error) {
+func (s *Session) Write(payload []byte) (n int, err error) {
 
 	// use atomics to access the ByteAccount.
 	// We attach this to our packets so that
@@ -484,11 +508,15 @@ func (s *Session) Write(p []byte) (n int, err error) {
 	// that happened before.
 	var ba ByteAccount
 
-	lenp := int64(len(p))
+	lenp := int64(len(payload))
 	if lenp == 0 {
 		return 0, nil
 	}
-	sz := s.Cfg.WindowByteSz
+
+	// At 1MB, gnatsd freaks. Keep it under 512KB.
+	// sz := int64Min(s.Cfg.WindowByteSz, 1<<19)
+	// or for easier debugging, an even 128K
+	sz := int64Min(s.Cfg.WindowByteSz, 131072)
 
 	npack := lenp / sz
 	if lenp-npack*sz > 0 {
@@ -499,20 +527,22 @@ func (s *Session) Write(p []byte) (n int, err error) {
 		pack := &Packet{
 			From:       s.MyInbox,
 			Dest:       s.Destination,
-			Data:       p[i*sz : int64Min((i+1)*sz, lenp)],
+			Data:       payload[i*sz : int64Min((i+1)*sz, lenp)],
 			Accounting: &ba,
+			TcpEvent:   EventData,
 		}
 		if i == npack-1 {
 			pack.CliAcked = ca
 		}
 		s.Push(pack)
+		///p("%s Write() sent packet %v of %v", s.MyInbox, i, npack)
 	}
 	select {
 	case <-ca.Ch:
-		fmt.Printf("\nwe got end-to-end ack from receiver that all packets were delivered\n")
+		///p("we got end-to-end ack from receiver that all packets were delivered")
 		ca.BcastAck()
 	case <-time.After(10 * time.Second):
-
+		p("problem in %s Write: timeout after 10 seconds waiting", s.MyInbox)
 	case <-s.Halt.Done.Chan:
 	}
 

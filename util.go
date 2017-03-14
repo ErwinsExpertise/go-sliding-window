@@ -222,6 +222,8 @@ type NatsClientConfig struct {
 	// helpful for test code to auto-crash on error
 	AsyncErrPanics bool
 
+	ErrorCallbackFunc func(c *nats.Conn, s *nats.Subscription, e error)
+
 	// ====================
 	// Init() fills in:
 	// ====================
@@ -253,22 +255,31 @@ func (cfg *NatsClientConfig) Init() {
 	o = append(o, nats.Name(cfg.NatsNodeName))
 
 	o = append(o, nats.ErrorHandler(func(c *nats.Conn, s *nats.Subscription, e error) {
-		if cfg.AsyncErrPanics {
-			fmt.Printf("\n  got an asyn err, here is the"+
+		if e.Error() == "nats: slow consumer, messages dropped" {
+			return
+		}
+		if cfg.AsyncErrPanics || cfg.ErrorCallbackFunc == nil {
+			fmt.Printf("\n  got an async err '%v', here is the"+
 				" status of nats queues: '%#v'\n",
-				ReportOnSubscription(s))
+				e, ReportOnSubscription(s))
 			panic(e)
 		}
-		cfg.NatsAsyncErrCh <- asyncErr{conn: c, sub: s, err: e}
+		cfg.ErrorCallbackFunc(c, s, e)
 	}))
 	o = append(o, nats.DisconnectHandler(func(conn *nats.Conn) {
-		cfg.NatsConnDisconCh <- conn
+		if cfg.NatsConnDisconCh != nil {
+			cfg.NatsConnDisconCh <- conn
+		}
 	}))
 	o = append(o, nats.ReconnectHandler(func(conn *nats.Conn) {
-		cfg.NatsConnReconCh <- conn
+		if cfg.NatsConnReconCh != nil {
+			cfg.NatsConnReconCh <- conn
+		}
 	}))
 	o = append(o, nats.ClosedHandler(func(conn *nats.Conn) {
-		cfg.NatsConnClosedCh <- conn
+		if cfg.NatsConnClosedCh != nil {
+			cfg.NatsConnClosedCh <- conn
+		}
 	}))
 
 	if !cfg.SkipTLS && !cfg.Certs.skipTLS {

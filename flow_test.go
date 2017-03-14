@@ -82,13 +82,13 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	rtt := 100 * lat
 
 	A, err := NewSession(SessionConfig{Net: anet, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 	p("receiver only wants 1 at a time")
 	// for some reason 1 at a time thrases the semaphores
 	// somewhere in the Go runtime.
 	B, err := NewSession(SessionConfig{Net: bnet, LocalInbox: "B", DestInbox: "A",
-		WindowMsgSz: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 1, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	// easier to reason about when manually debugging,
@@ -128,9 +128,10 @@ func Test008ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 	seq := make([]*Packet, n)
 	for i := range seq {
 		pack := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte(fmt.Sprintf("%v", i)),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte(fmt.Sprintf("%v", i)),
+			TcpEvent: EventData,
 		}
 		seq[i] = pack
 	}
@@ -195,10 +196,10 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	rtt := 1000 * lat
 
 	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk})
 	panicOn(err)
 
 	A.SelfConsumeForTesting()
@@ -223,9 +224,10 @@ func Test009SimNetVerifiesFlowControlNotViolated(t *testing.T) {
 	seq := make([]*Packet, n)
 	for i := range seq {
 		pack := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte(fmt.Sprintf("%v", i)),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte(fmt.Sprintf("%v", i)),
+			TcpEvent: EventData,
 		}
 		seq[i] = pack
 	}

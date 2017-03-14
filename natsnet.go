@@ -42,8 +42,10 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 		_, err := pack.UnmarshalMsg(msg.Data)
 		panicOn(err)
 		select {
-		case mr <- &pack:
+		case mr <- &pack: //hung here
 		case <-n.Halt.ReqStop.Chan:
+			//		case <-time.After(10 * time.Second):
+			//			p("NatsNet dropping pack.SeqNum=%v after 10 seconds of failing to deliver to receiver", pack.SeqNum)
 		}
 	})
 	//p("subscription by %v on subject %v succeeded", n.Cli.Cfg.NatsNodeName, inbox)
@@ -52,7 +54,7 @@ func (n *NatsNet) Listen(inbox string) (chan *Packet, error) {
 
 // Send blocks until Send has started (but not until acked).
 func (n *NatsNet) Send(pack *Packet, why string) error {
-	//p("in NatsNet.Send(pack=%#v) why: '%s'", *pack, why)
+	///p("%s in NatsNet.Send(pack.SeqNum=%v / .AckNum=%v) why: '%s'", pack.From, pack.SeqNum, pack.AckNum, why)
 	bts, err := pack.MarshalMsg(nil)
 	if err != nil {
 		return err

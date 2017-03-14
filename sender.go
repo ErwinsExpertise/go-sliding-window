@@ -3,6 +3,7 @@ package swp
 import (
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +15,12 @@ import (
 type TxqSlot struct {
 	OrigSendTime  time.Time
 	RetryDeadline time.Time
+	RetryDur      time.Duration
 	Pack          *Packet
+}
+
+func (s *TxqSlot) String() string {
+	return fmt.Sprintf("TxqSlot{RetryDeadline: %v, Pack.SeqNum:%v, RetryDur:%v}", s.RetryDeadline, s.Pack.SeqNum, s.RetryDur)
 }
 
 // SenderState tracks the sender's sliding window state.
@@ -60,7 +66,8 @@ type SenderState struct {
 	// to disable the auto-close.
 	NumFailedKeepAlivesBeforeClosing int
 
-	SentButNotAcked map[int64]*TxqSlot
+	SentButNotAckedByDeadline *retree
+	SentButNotAckedBySeqNum   *retree
 
 	// flow control params
 	// last seen from our downstream
@@ -85,33 +92,44 @@ type SenderState struct {
 
 	// tell the receiver that sender is terminating
 	SenderShutdown chan bool
+
+	recvLastFrameClientConsumed int64
+}
+
+func (s *SenderState) GetRecvLastFrameClientConsumed() int64 {
+	return atomic.LoadInt64(&s.recvLastFrameClientConsumed)
+}
+func (s *SenderState) SetRecvLastFrameClientConsumed(nfe int64) {
+	atomic.StoreInt64(&s.recvLastFrameClientConsumed, nfe)
 }
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
-	inbox string, destInbox string, clk Clock, termCfg *TermConfig) *SenderState {
+	inbox string, destInbox string, clk Clock, termCfg *TermConfig, keepAliveInterval time.Duration) *SenderState {
 	s := &SenderState{
-		Clk:              clk,
-		Net:              net,
-		Inbox:            inbox,
-		Dest:             destInbox,
-		SenderWindowSize: sendSz,
-		Txq:              make([]*TxqSlot, sendSz),
-		Timeout:          timeout,
-		LastFrameSent:    -1,
-		LastAckRec:       -1,
-		Halt:             idem.NewHalter(),
-		SendHistory:      make([]*Packet, 0),
-		BlockingSend:     make(chan *Packet),
-		SendSz:           sendSz,
-		GotPack:          make(chan *Packet),
-		SendAck:          make(chan *Packet),
-		SentButNotAcked:  make(map[int64]*TxqSlot),
-		SenderShutdown:   make(chan bool),
+		Clk:                       clk,
+		Net:                       net,
+		Inbox:                     inbox,
+		Dest:                      destInbox,
+		SenderWindowSize:          sendSz,
+		Txq:                       make([]*TxqSlot, sendSz),
+		Timeout:                   timeout,
+		LastFrameSent:             -1,
+		LastAckRec:                -1,
+		Halt:                      idem.NewHalter(),
+		SendHistory:               make([]*Packet, 0),
+		BlockingSend:              make(chan *Packet),
+		SendSz:                    sendSz,
+		GotPack:                   make(chan *Packet),
+		SendAck:                   make(chan *Packet, 5), // buffered so we don't deadlock
+		SentButNotAckedByDeadline: newRetree(compareRetryDeadline),
+		SentButNotAckedBySeqNum:   newRetree(compareSeqNum),
+
+		SenderShutdown: make(chan bool),
 
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
-		KeepAliveInterval: 100 * time.Millisecond,
+		KeepAliveInterval: keepAliveInterval,
 		FlowCt: &FlowCtrl{Flow: Flow{
 			// Control messages such as acks and keepalives
 			// should not be blocked by flow-control (for
@@ -158,7 +176,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 // ComputeInflight returns the number of bytes and messages
 // that are in-flight: they have been sent but not yet acked.
 func (s *SenderState) ComputeInflight() (bytesInflight int64, msgInflight int64) {
-	for _, slot := range s.SentButNotAcked {
+	for it := s.SentButNotAckedByDeadline.tree.Min(); !it.Limit(); it = it.Next() {
+		slot := it.Item().(*TxqSlot)
 		msgInflight++
 		bytesInflight += int64(len(slot.Pack.Data))
 	}
@@ -184,6 +203,7 @@ func (s *SenderState) Start(sess *Session) {
 
 		// shutdown stuff, all in one place for consistency
 		defer func() {
+			///p("%s SendState defer/shutdown happening.", s.Inbox)
 			s.doSendClosing()
 			close(s.SenderShutdown) // stops the receiver
 			s.Halt.ReqStop.Close()
@@ -238,8 +258,12 @@ func (s *SenderState) Start(sess *Session) {
 					elap := now.Sub(s.LastHeardFromDownstream)
 					//p("elap = %v; s.LastHeardFromDownstream=%v", elap, s.LastHeardFromDownstream)
 					if elap > thresh {
+
+						// debug, don't close, leave it open.
+						continue
+
 						// time to shutdown
-						//p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
+						p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
 						return
 					}
 				}
@@ -248,47 +272,38 @@ func (s *SenderState) Start(sess *Session) {
 				// sent again?
 				retry := []*TxqSlot{}
 				//p("about to check s.FailTracker = %p", s.FailTracker)
-				for _, slot := range s.SentButNotAcked {
-					if slot.RetryDeadline.Before(now) {
-						retry = append(retry, slot)
-						if s.FailTracker != nil &&
-							s.FailTracker.AddEventCheckOverflow(now) {
-							//p("s.FailTracker detected too many errors, " +
-							//	"terminating session")
-							msg := fmt.Sprintf("Sender sees %v ack fails in "+
-								"window of %v, terminating session",
-								s.FailTracker.N, s.FailTracker.Window)
-							te := &TerminatedError{Msg: msg}
-							s.SetErr(te)
-							sess.SetErr(te)
-							return
-						}
-					}
-				}
-				if len(retry) > 0 {
-					//p("%v sender retry list is len %v", s.Inbox, len(retry))
-				}
-			doRetryLoop:
-				for _, slot := range retry {
-					if slot.Pack == nil {
-						//p("retry loop, slot = %#v", slot)
-					}
-					_, ok := s.SentButNotAcked[slot.Pack.SeqNum]
-					if !ok {
-						//p("already acked and gone from SentButNotAcked, so skip SeqNum %v and PopTop",
-						//	slot.Pack.SeqNum)
-						continue doRetryLoop
-					}
-					if slot.Pack.SeqNum <= s.LastAckRec {
-						//p("already acked; is <= s.LastAckRecv (%v), so skip SeqNum %v and PopTop",
-						//	s.LastAckRec, slot.Pack.SeqNum)
-						continue doRetryLoop
-					}
+				s.SentButNotAckedByDeadline.deleteThroughDeadline(now,
+					func(slot *TxqSlot) {
+						s.SentButNotAckedBySeqNum.deleteSlot(slot)
 
+						retry = append(retry, slot)
+						///p("%s sender detects slot with SeqNum=%v has retry deadline expired; since deadline = %v < %v == now, by %v. Elap since orig send time: %v. slot.RetryDur:%v", s.Inbox, slot.Pack.SeqNum, slot.RetryDeadline, now, now.Sub(slot.RetryDeadline), now.Sub(slot.OrigSendTime), slot.RetryDur)
+					})
+				if len(retry) > 0 {
+					///p("%v sender retry list is len %v", s.Inbox, len(retry))
+
+					if s.FailTracker != nil &&
+						s.FailTracker.AddEventCheckOverflow(now) {
+
+						// debug: don't return, continue
+						//continue
+
+						//p("s.FailTracker detected too many errors, " +
+						//	"terminating session")
+						msg := fmt.Sprintf("Sender sees %v ack fails in "+
+							"window of %v, terminating session",
+							s.FailTracker.N, s.FailTracker.Window)
+						te := &TerminatedError{Msg: msg}
+						s.SetErr(te)
+						sess.SetErr(te)
+					}
+				}
+				for _, slot := range retry {
 					// reset deadline and resend
 					now := s.Clk.Now()
 					flow := s.FlowCt.UpdateFlow(s.Inbox, s.Net, -1, -1, nil)
-					slot.RetryDeadline = s.GetDeadline(now, flow)
+					slot.RetryDur = s.GetDeadlineDur(flow)
+					slot.RetryDeadline = now.Add(slot.RetryDur)
 					slot.Pack.SeqRetry++
 					slot.Pack.DataSendTm = now
 
@@ -298,8 +313,10 @@ func (s *SenderState) Start(sess *Session) {
 					slot.Pack.FromRttSdNsec = int64(s.rtt.GetSd())
 					slot.Pack.FromRttN = s.rtt.N
 
-					//p("%v doing retry Net.Send() for pack = '%#v' of paydirt '%s'",
-					//	s.Inbox, slot.Pack, string(slot.Pack.Data))
+					s.SentButNotAckedByDeadline.insert(slot)
+					s.SentButNotAckedBySeqNum.insert(slot)
+
+					///p("%v doing retry Net.Send() for pack.SeqNum = '%v' of paydirt len %v", s.Inbox, slot.Pack.SeqNum, len(slot.Pack.Data))
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
@@ -330,73 +347,66 @@ func (s *SenderState) Start(sess *Session) {
 
 				s.UpdateRTT(a)
 
-				// need to update our map of SentButNotAcked
+				// need to update our SentButNotAcked* trees
 				// and remove everything before AckNum, which is cumulative.
-				for seqno, slot := range s.SentButNotAcked {
-					if seqno != slot.Pack.SeqNum {
-						panic("internal logic error; seqno should == slot.Pack.SeqNum")
-					}
-					if slot.Pack.SeqNum <= a.AckNum {
+				numDel := 0
+				s.SentButNotAckedBySeqNum.deleteThroughSeqNum(
+					a.AckNum, func(slot *TxqSlot) {
+						s.SentButNotAckedByDeadline.deleteSlot(slot)
+						numDel++
 						if slot.Pack.CliAcked != nil {
-							p("got ack for packet that has CliAcked on it; slot.Packet.SeqNum=%v", slot.Pack.SeqNum)
+							///p("got ack for packet that has CliAcked on it; a.AckNum=%v. len(Data)=%v. event=%s. clearing slot.Pack.SeqNum=%v", a.AckNum, len(slot.Pack.Data), a.TcpEvent, slot.Pack.SeqNum)
 							if slot.Pack.CliAcked != nil {
 								slot.Pack.CliAcked.Bcast(slot.Pack.SeqNum)
 							}
 						}
-						delete(s.SentButNotAcked, slot.Pack.SeqNum)
-						s.TotalBytesSentAndAcked += int64(len(slot.Pack.Data))
+						///p("%s deleting slot.Pack.SeqNum=%v <= a.AckNum=%v from s.SentButNotAcked", s.Inbox, slot.Pack.SeqNum, a.AckNum)
+						//s.TotalBytesSentAndAcked += int64(len(slot.Pack.Data))
 						if slot.Pack.Accounting != nil {
 							nba := atomic.LoadInt64(&slot.Pack.Accounting.NumBytesAcked)
 							nba += int64(len(slot.Pack.Data))
 							atomic.StoreInt64(&slot.Pack.Accounting.NumBytesAcked, nba)
 						}
-					}
+					})
+				///p("%v after numDel %v through a.AckNum=%v, s.SentButNotAckedBySeqNum=\n%s\n, and s.SentButNotAckedByDeadline=\n%s\n", s.Inbox, numDel, a.AckNum, s.SentButNotAckedBySeqNum, s.SentButNotAckedByDeadline)
+
+				// we were having problems with delete ByDeadline not
+				// happening, so assert a sanity check here.
+				lenBySeq := s.SentButNotAckedBySeqNum.tree.Len()
+				lenByDeadline := s.SentButNotAckedByDeadline.tree.Len()
+				if lenBySeq != lenByDeadline {
+					panic(fmt.Sprintf("lenBySeq=%v, while lenByDeadline=%v", lenBySeq, lenByDeadline))
 				}
 
-				if !a.AckOnly {
+				if a.TcpEvent != EventDataAck || a.AckNum < 0 {
 					// it wasn't an Ack, just updated flow info
-					// from a received data message.
+					// from a received data message; or a keepalive (a.AckNum < 0).
 					//p("%s sender Gotack: just updated flow control, continuing sendloop", s.Inbox)
 					continue sendloop
 				}
-				//p("%s sender Gotack: more than just flowcontrol...", s.Inbox)
-				delete(s.SentButNotAcked, a.AckNum)
+				// INVAR: a.TcpEvent == EventDataAck
+
+				///p("%s sender has EventDataAck(%v) or a.AckNum(%v) < 0 ...", s.Inbox, a.TcpEvent == EventDataAck, a.AckNum)
 				if !InWindow(a.AckNum, s.LastAckRec+1, s.LastFrameSent) {
-					//p("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.",
-					//	s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
+					///p("%v a.AckNum = %v outside sender's window [%v, %v], dropping it.", s.Inbox, a.AckNum, s.LastAckRec+1, s.LastFrameSent)
 					s.DiscardCount++
 					continue sendloop
 				}
 				//p("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
-				for {
-					s.LastAckRec++
 
-					// release the send slot
-					// do this before changing slot, since we point into slot.
-					delete(s.SentButNotAcked, s.LastAckRec)
-
-					//slot := s.Txq[s.LastAckRec%s.SenderWindowSize]
-					//p("%v ... slot = %#v", s.Inbox, slot)
-
-					if s.LastAckRec == a.AckNum {
-						//p("%v s.LastAskRec[%v] matches a.AckNum[%v], breaking",
-						//	s.Inbox, s.LastAckRec, a.AckNum)
-						break
-					}
-					//p("%v s.LastAskRec[%v] != a.AckNum[%v], looping",
-					//	s.Inbox, s.LastAckRec, a.AckNum)
-				}
 			case ackPack := <-s.SendAck:
 				// request to send an ack:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				//p("%v doing ack Net.Send() SendAck request on ackPack: '%#v'",
-				//	s.Inbox, ackPack)
+				///p("%v doing ack Net.Send() where the ackPack has AckNum '%v'", s.Inbox, ackPack.AckNum)
 				ackPack.FromRttEstNsec = int64(s.rtt.GetEstimate())
 				ackPack.FromRttSdNsec = int64(s.rtt.GetSd())
 				ackPack.FromRttN = s.rtt.N
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
-				panicOn(err)
+				//panicOn(err) "nats: connection closed"
+				if err != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -415,7 +425,6 @@ func (s *SenderState) Stop() {
 // Return the packet's sequence number, from
 // the LastFrameSent counter.
 func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
-	//p("%v sender in acceptSend", s.Inbox)
 
 	s.LastFrameSent++
 	//p("%v LastFrameSent is now %v", s.Inbox, s.LastFrameSent)
@@ -427,22 +436,40 @@ func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
 	pos := lfs % s.SenderWindowSize
 	slot := s.Txq[pos]
 
+	if len(pack.Data) > 0 {
+		pack.Blake2bChecksum = Blake2bOfBytes(pack.Data)
+		//p("%v SenderState.send() added blake2b '%x' of len(pack.Data)=%v", s.Inbox, pack.Blake2bChecksum, len(pack.Data))
+	}
+
 	pack.SeqNum = lfs
+	///p("%v sender in acceptSend, pack.SeqNum='%v'", s.Inbox, pack.SeqNum)
+
 	if pack.From != s.Inbox {
 		pack.From = s.Inbox
 	}
 	pack.From = s.Inbox
 	slot.Pack = pack
-	// data sends get stored in SentButNotAcked
-	s.SentButNotAcked[lfs] = slot
 
 	now := s.Clk.Now()
 	s.SendHistory = append(s.SendHistory, pack)
 	slot.OrigSendTime = now
 
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
-	slot.RetryDeadline = s.GetDeadline(now, flow)
+	slot.RetryDur = s.GetDeadlineDur(flow)
+	slot.RetryDeadline = now.Add(slot.RetryDur)
 	s.LastSendTime = now
+
+	// data sends get stored in the
+	// SentButNotAcked trees.
+
+	// These inserts MUST HAPPEN AFTER slot.RetryDeadline is
+	// set above!
+	// -- or else the sorting won't work right, and so
+	// the delete won't work right.
+	s.SentButNotAckedByDeadline.insert(slot)
+	s.SentButNotAckedBySeqNum.insert(slot)
+
+	///p("%v doSend(), after setting RetryDeadline on SeqNum=%v, slot = \n%s\n", s.Inbox, slot.Pack.SeqNum, slot)
 
 	//p("%v doSend(), flow = '%#v'", s.Inbox, flow)
 	pack.AvailReaderBytesCap = flow.AvailReaderBytesCap
@@ -473,14 +500,16 @@ func (s *SenderState) doKeepAlive() {
 	// flow control info from the other end.
 	now := s.Clk.Now()
 	s.LastSendTime = now
+
 	kap := &Packet{
 		From:                s.Inbox,
 		Dest:                s.Dest,
 		SeqNum:              -777, // => keepalive
 		SeqRetry:            -777,
 		DataSendTm:          now,
+		AckNum:              s.GetRecvLastFrameClientConsumed(),
 		AckRetry:            -777,
-		KeepAlive:           true,
+		TcpEvent:            EventKeepAlive,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 
@@ -490,13 +519,30 @@ func (s *SenderState) doKeepAlive() {
 	}
 	//p("%v doing keepalive Net.Send()", s.Inbox)
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
-	panicOn(err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "on send Keepalive attempt, got err = '%v'\n", err)
+	}
 
 	s.keepAlive = time.After(s.KeepAliveInterval)
 }
 
+// If close is out of bound, what if it is lost?
+// Is only the inband data sequence retried? Or
+// is out of band also retried? If close is not
+// acked with the regular data seqnums, then we
+// need to ack it separately.
+//
+// We seem to be closing before all data has
+// been delivered to the far-end client. Should
+// we be waiting to ack it until the client has
+// actually read it?
+//
+// We are seeing some packets misordered... how
+// is that possible if the sequence numbers are
+// correct?
+//
 func (s *SenderState) doSendClosing() {
-	//p("%s doSendClosing() running", s.Inbox)
+	p("%s doSendClosing() running", s.Inbox)
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
 	now := s.Clk.Now()
 	s.LastSendTime = now
@@ -507,8 +553,7 @@ func (s *SenderState) doSendClosing() {
 		SeqRetry:            -888,
 		DataSendTm:          now,
 		AckRetry:            -888,
-		KeepAlive:           false,
-		Closing:             true,
+		TcpEvent:            EventFin,
 		AvailReaderBytesCap: flow.AvailReaderBytesCap,
 		AvailReaderMsgCap:   flow.AvailReaderMsgCap,
 
@@ -516,9 +561,12 @@ func (s *SenderState) doSendClosing() {
 		FromRttSdNsec:  int64(s.rtt.GetSd()),
 		FromRttN:       s.rtt.N,
 	}
-	//p("%v doing keepalive Net.Send()", s.Inbox)
-	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
-	panicOn(err)
+	//p("%v doing Closing Net.Send()", s.Inbox)
+	err := s.Net.Send(kap, fmt.Sprintf("endpoint is closing, from %v", s.Inbox))
+	//panicOn(err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "on send Closing attempt, got err = '%v'\n", err)
+	}
 
 	s.keepAlive = time.After(s.KeepAliveInterval)
 }
@@ -533,10 +581,10 @@ func min(a, b int64) int64 {
 func (s *SenderState) UpdateRTT(pack *Packet) {
 	// avoid clock skew between machines by
 	// not sampling one-way elapsed times.
-	if pack.KeepAlive {
+	if pack.TcpEvent == EventKeepAlive {
 		return
 	}
-	if !pack.AckOnly {
+	if pack.TcpEvent != EventDataAck {
 		return
 	}
 	//p("%v UpdateRTT top, pack = %#v", s.Inbox, pack)
@@ -559,14 +607,16 @@ func (s *SenderState) UpdateRTT(pack *Packet) {
 	//p("%v pack.DataSendTm = %v", s.Inbox, pack.DataSendTm)
 	s.rtt.AddSample(obs)
 
-	//	sd := s.rtt.GetSd()
+	//sd := s.rtt.GetSd()
 	//p("%v UpdateRTT: observed rtt was %v. new smoothed estimate after %v samples is %v. sd = %v", s.Inbox, obs, s.rtt.N, s.rtt.GetEstimate(), sd)
 }
 
-// GetDeadline sets the receive deadline using a
+// GetDeadlineDur returns the duration until
+// the receive deadline using a
 // weighted average of our observed RTT info and the remote
 // end's observed RTT info.
-func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
+// Add it to time.Now() before using.
+func (s *SenderState) GetDeadlineDur(flow Flow) time.Duration {
 	var ema time.Duration
 	var sd time.Duration
 	var n int64 = s.rtt.N
@@ -576,8 +626,8 @@ func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
 			ema = time.Duration(flow.RemoteRttEstNsec)
 			sd = time.Duration(flow.RemoteRttSdNsec)
 		} else {
-			// nobody has good info, just guess.
-			return now.Add(20 * time.Millisecond)
+			//p("nobody has good info, just guess. retry deadline will be 500msec out.")
+			return 500 * time.Millisecond
 		}
 	} else {
 		// we have at least one local round-trip sample
@@ -625,12 +675,20 @@ func (s *SenderState) GetDeadline(now time.Time, flow Flow) time.Time {
 		ema = newEma
 	}
 
-	// allow two standard deviations of margin
+	// allow four standard deviations of margin
 	// before consuming bandwidth for retry.
-	fin := ema + 2*sd
-	//p("%v ema is %v", s.Inbox, ema)
-	//p("setting deadline of duration %v", fin)
-	return now.Add(fin)
+	fin := ema + 4*sd
+	//p("%v ema is %v +/- %v", s.Inbox, ema, sd)
+
+	if s.rtt.N < 10 {
+		// minimum sanity thresh while small sample size
+		minTo := time.Millisecond * 100
+		if fin < minTo {
+			fin = minTo
+		}
+	}
+	//p("returning deadline of duration %v", fin)
+	return fin
 }
 
 func (s *SenderState) SetErr(err error) {

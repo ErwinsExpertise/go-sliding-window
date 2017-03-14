@@ -125,6 +125,7 @@ func Test108ProvidesFlowControlToThrottleOverSending(t *testing.T) {
 			From: "A",
 			Dest: "B",
 			Data: []byte(fmt.Sprintf("%v", i)),
+			TcpEvent: EventData,
 		}
 		seq[i] = pack
 	}

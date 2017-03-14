@@ -17,18 +17,19 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 		rtt := 2 * lat
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
 		})
 		panicOn(err)
 		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
 		})
 		panicOn(err)
 
 		p1 := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte("one"),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte("one"),
+			TcpEvent: EventData,
 		}
 
 		A.Push(p1)
@@ -51,9 +52,10 @@ func Test010ConsumerSideFlowControl(t *testing.T) {
 		p("good: got first packet delivery")
 
 		p2 := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte("two"),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte("two"),
+			TcpEvent: EventData,
 		}
 		A.Push(p2)
 		time.Sleep(500 * time.Millisecond)
@@ -87,20 +89,21 @@ func Test020DetectOtherEndShutdown(t *testing.T) {
 		rtt := 2 * lat
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
 			NumFailedKeepAlivesBeforeClosing: 10,
 		})
 		panicOn(err)
 		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-			WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
 			NumFailedKeepAlivesBeforeClosing: 10,
 		})
 		panicOn(err)
 
 		p1 := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte("one"),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte("one"),
+			TcpEvent: EventData,
 		}
 
 		A.Push(p1)

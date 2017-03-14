@@ -36,7 +36,7 @@ func Test015TerminationOfSessions(t *testing.T) {
 		}
 
 		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-			WindowMsgSz: 20, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
+			WindowMsgCount: 20, WindowByteSz: -1, Timeout: rtt, Clk: simClk,
 			TermCfg: tc,
 			NumFailedKeepAlivesBeforeClosing: -1,
 		})
@@ -45,9 +45,10 @@ func Test015TerminationOfSessions(t *testing.T) {
 		A.SelfConsumeForTesting()
 
 		p1 := &Packet{
-			From: "A",
-			Dest: "B",
-			Data: []byte("one"),
+			From:     "A",
+			Dest:     "B",
+			Data:     []byte("one"),
+			TcpEvent: EventData,
 		}
 
 		for i := 0; i < n; i++ {

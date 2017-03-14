@@ -22,19 +22,20 @@ func Test011RTTfromPackets(t *testing.T) {
 	simClk.Set(t0)
 
 	A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk})
 	panicOn(err)
 	B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-		WindowMsgSz: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk})
+		WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: simClk})
 	panicOn(err)
 
 	A.IncrementClockOnReceiveForTesting()
 	B.IncrementClockOnReceiveForTesting()
 
 	p1 := &Packet{
-		From: "A",
-		Dest: "B",
-		Data: []byte("one"),
+		From:     "A",
+		Dest:     "B",
+		Data:     []byte("one"),
+		TcpEvent: EventData,
 	}
 
 	var ack1 *Packet
