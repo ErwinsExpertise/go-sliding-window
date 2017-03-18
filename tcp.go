@@ -62,6 +62,9 @@ const (
 
 	// a keepalive
 	EventKeepAlive TcpEvent = 14
+
+	// FileHeader describing the file to follow
+	EventFileHeader TcpEvent = 15
 )
 
 type TcpAction int
@@ -192,6 +195,8 @@ func (s *TcpState) UpdateTcp(e TcpEvent) TcpAction {
 		case EventApplicationClosed:
 			*s = LastAck
 			return SendFin
+		case EventFin:
+			// duplicate Fin, ignore
 		case EventReset:
 			*s = Closed
 		default:
