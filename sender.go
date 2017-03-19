@@ -54,6 +54,7 @@ type SenderState struct {
 	SendHistory  []*Packet
 	SendSz       int64
 	SendAck      chan *Packet
+	sendSynCh    chan *ConnectReq
 	DiscardCount int64
 
 	LastSendTime            time.Time
@@ -91,6 +92,8 @@ type SenderState struct {
 	SenderShutdown chan bool
 
 	recvLastFrameClientConsumed int64
+	LocalSessNonce              string
+	RemoteSessNonce             string
 }
 
 func (s *SenderState) GetRecvLastFrameClientConsumed() int64 {
@@ -102,8 +105,10 @@ func (s *SenderState) SetRecvLastFrameClientConsumed(nfe int64) {
 
 // NewSenderState constructs a new SenderState struct.
 func NewSenderState(net Network, sendSz int64, timeout time.Duration,
-	inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration) *SenderState {
+	inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration,
+	nonce string) *SenderState {
 	s := &SenderState{
+		LocalSessNonce:            nonce,
 		Clk:                       clk,
 		Net:                       net,
 		Inbox:                     inbox,
@@ -119,6 +124,7 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SendSz:                    sendSz,
 		GotPack:                   make(chan *Packet),
 		SendAck:                   make(chan *Packet, 5), // buffered so we don't deadlock
+		sendSynCh:                 make(chan *ConnectReq),
 		SentButNotAckedByDeadline: newRetree(compareRetryDeadline),
 		SentButNotAckedBySeqNum:   newRetree(compareSeqNum),
 
@@ -291,6 +297,9 @@ func (s *SenderState) Start(sess *Session) {
 					s.SentButNotAckedBySeqNum.insert(slot)
 
 					///p("%v doing retry Net.Send() for pack.SeqNum = '%v' of paydirt len %v", s.Inbox, slot.Pack.SeqNum, len(slot.Pack.Data))
+					slot.Pack.FromSessNonce = s.LocalSessNonce
+					slot.Pack.DestSessNonce = s.RemoteSessNonce
+
 					err := s.Net.Send(slot.Pack, "retry")
 					panicOn(err)
 				}
@@ -366,7 +375,14 @@ func (s *SenderState) Start(sess *Session) {
 					s.DiscardCount++
 					continue sendloop
 				}
-				//p("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
+			//p("%v packet.AckNum = %v inside sender's window, keeping it.", s.Inbox, a.AckNum)
+
+			case cr := <-s.sendSynCh:
+				err := s.Net.Send(cr.synPack, "sendSyn")
+				if err != nil {
+					cr.Err = err
+					close(cr.Done)
+				}
 
 			case ackPack := <-s.SendAck:
 				// request to send an ack:
@@ -376,6 +392,13 @@ func (s *SenderState) Start(sess *Session) {
 				ackPack.FromRttEstNsec = int64(s.rtt.GetEstimate())
 				ackPack.FromRttSdNsec = int64(s.rtt.GetSd())
 				ackPack.FromRttN = s.rtt.N
+
+				// learn the remote/dest sess nonce
+				if s.RemoteSessNonce == "" && ackPack.DestSessNonce != "" {
+					//p("%s sender is setting s.RemoteSessNonce='%s'. my local sess is '%s'", s.Inbox, ackPack.DestSessNonce, s.LocalSessNonce)
+					s.RemoteSessNonce = ackPack.DestSessNonce
+				}
+
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
 				//panicOn(err) "nats: connection closed"
 				if err != nil {
@@ -455,6 +478,8 @@ func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
 	pack.FromRttSdNsec = int64(s.rtt.GetSd())
 	pack.FromRttN = s.rtt.N
 
+	slot.Pack.FromSessNonce = s.LocalSessNonce
+	slot.Pack.DestSessNonce = s.RemoteSessNonce
 	err := s.Net.Send(slot.Pack, fmt.Sprintf("doOrigDataSend() for %v", s.Inbox))
 	panicOn(err)
 
@@ -492,6 +517,9 @@ func (s *SenderState) doKeepAlive() {
 		FromRttN:       s.rtt.N,
 	}
 	//p("%v doing keepalive Net.Send()", s.Inbox)
+	kap.FromSessNonce = s.LocalSessNonce
+	kap.DestSessNonce = s.RemoteSessNonce
+
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "on send Keepalive attempt, got err = '%v'\n", err)
@@ -536,6 +564,9 @@ func (s *SenderState) doSendClosing() {
 		FromRttN:       s.rtt.N,
 	}
 	//p("%v doing Closing Net.Send()", s.Inbox)
+	kap.FromSessNonce = s.LocalSessNonce
+	kap.DestSessNonce = s.RemoteSessNonce
+
 	err := s.Net.Send(kap, fmt.Sprintf("endpoint is closing, from %v", s.Inbox))
 	//panicOn(err)
 	if err != nil {

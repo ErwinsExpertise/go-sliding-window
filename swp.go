@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"github.com/glycerine/bchan"
+	"github.com/glycerine/cryrand"
 	"github.com/glycerine/idem"
 	"github.com/tinylib/msgp/msgp"
 )
@@ -83,6 +84,11 @@ type TcpEvent int
 type Packet struct {
 	From string
 	Dest string
+
+	// uniquely identify a file/session with a randomly
+	// chosen then fixed nonce. See NewSessionNonce() to generate.
+	FromSessNonce string
+	DestSessNonce string
 
 	// ArrivedAtDestTm is timestamped by
 	// the receiver immediately when the
@@ -189,10 +195,10 @@ type SWP struct {
 // NewSWP makes a new sliding window protocol manager, holding
 // both sender and receiver components.
 func NewSWP(net Network, windowMsgCount int64, windowByteCount int64,
-	timeout time.Duration, inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration) *SWP {
+	timeout time.Duration, inbox string, destInbox string, clk Clock, keepAliveInterval time.Duration, nonce string) *SWP {
 
-	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, keepAliveInterval)
-	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk)
+	snd := NewSenderState(net, windowMsgCount, timeout, inbox, destInbox, clk, keepAliveInterval, nonce)
+	rcv := NewRecvState(net, windowMsgCount, windowByteCount, timeout, inbox, snd, clk, nonce)
 	swp := &SWP{
 		Sender: snd,
 		Recver: rcv,
@@ -238,6 +244,9 @@ type Session struct {
 
 	mut                sync.Mutex
 	RemoteSenderClosed chan bool
+
+	LocalSessNonce  string
+	RemoteSessNonce string
 }
 
 // SessionConfig configures a Session.
@@ -327,18 +336,20 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	if cfg.KeepAliveInterval == 0 {
 		cfg.KeepAliveInterval = time.Millisecond * 500
 	}
+	nonce := NewSessionNonce()
 
 	sess := &Session{
 		Cfg: &cfg,
 		Swp: NewSWP(cfg.Net, cfg.WindowMsgCount, cfg.WindowByteSz,
 			cfg.Timeout, cfg.LocalInbox, cfg.DestInbox, cfg.Clk,
-			cfg.KeepAliveInterval),
+			cfg.KeepAliveInterval, nonce),
 		MyInbox:     cfg.LocalInbox,
 		Destination: cfg.DestInbox,
 		Net:         cfg.Net,
 		Halt:        idem.NewHalter(),
 		NumFailedKeepAlivesBeforeClosing: cfg.NumFailedKeepAlivesBeforeClosing,
 		RemoteSenderClosed:               make(chan bool),
+		LocalSessNonce:                   nonce,
 	}
 	sess.Swp.Sender.NumFailedKeepAlivesBeforeClosing = cfg.NumFailedKeepAlivesBeforeClosing
 	sess.Swp.Start(sess)
@@ -531,6 +542,11 @@ type ByteAccount struct {
 // over the flow-controlled Session s.
 func (s *Session) Write(payload []byte) (n int, err error) {
 
+	err = s.ConnectIfNeeded(s.Destination)
+	if err != nil {
+		return 0, err
+	}
+
 	// use atomics to access the ByteAccount.
 	// We attach this to our packets so that
 	// we don't get any residual left over acks
@@ -630,4 +646,56 @@ func (sess *Session) SendFile(path string, writeme []byte, tm time.Time) (*BigFi
 
 	err := msgp.Encode(sess, bf)
 	return bf, err
+}
+
+// SynAckAck is used as the encoded Data
+// for EventSyn, EventSynAck, and EventEstabAck: connection setup.
+type SynAckAck struct {
+
+	// EventSyn => also conveys SessionNonce
+	TcpEvent TcpEvent
+
+	// SessionNonce identifies the file in this session (replaces port numbers).
+	// Should always be present.  See NewSessionNonce() to generate.
+	SessionNonce string
+
+	// NextExpected should be 0 if fresh start;
+	// i.e. we know nothing from prior evesdropping on
+	// any prior multicast of this SessionNonce. Otherwise,
+	// NextExpected and NackList convey knowledge of what we have
+	// and don't have to allow the sender to skip
+	// repeating the packets.
+	//
+	// This is the next serial number that the receiver has not received.
+	//
+	// Only present on TcpEvent == EventSynAck.
+	NextExpected int64
+
+	// NackList can be an empty slice.
+	// Nacklist is a list of missing packets (on the receiver side) that we are aware of.
+	// (Nack=negative acknowledgement).
+	// Only present on TcpEvent == EventSynAck.
+	NackList []int64
+}
+
+func NewSessionNonce() string {
+	return cryrand.RandomStringWithUp(30)
+}
+
+// if not established, do the connect 3-way handshake
+// to exchange Session nonces.
+func (s *Session) ConnectIfNeeded(dest string) error {
+	if s.RemoteSessNonce == "" {
+		remoteNonce, err := s.Swp.Connect(dest)
+		if err != nil {
+			return err
+		}
+		s.RemoteSessNonce = remoteNonce
+		return nil
+	}
+	return nil
+}
+
+func (swp *SWP) Connect(dest string) (remoteNonce string, err error) {
+	return swp.Recver.Connect(dest)
 }
