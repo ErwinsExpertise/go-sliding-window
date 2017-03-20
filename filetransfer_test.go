@@ -128,6 +128,7 @@ func testsender(host string, nport int, gnats *server.Server, writeme []byte) {
 	//	panicOn(err)
 	//	fmt.Fprintf(os.Stderr, "read %v bytes from stdin\n", len(by))
 
+	A.simulateLostSynCount = 4
 	n, err := A.Write(writeme)
 	fmt.Fprintf(os.Stderr, "n = %v, err=%v after A.Write(writeme), where len(writeme)=%v\n", n, err, len(writeme))
 	A.Stop()
