@@ -487,6 +487,11 @@ func (s *SenderState) doOrigDataSend(pack *Packet) int64 {
 }
 
 func (s *SenderState) doKeepAlive() {
+	if s.Dest == "" || s.RemoteSessNonce == "" {
+		// don't bother with keepalives when we
+		// don't have a destintion.
+		return
+	}
 	if time.Since(s.LastSendTime) < s.KeepAliveInterval {
 		return
 	}
@@ -570,7 +575,8 @@ func (s *SenderState) doSendClosing() {
 	err := s.Net.Send(kap, fmt.Sprintf("endpoint is closing, from %v", s.Inbox))
 	//panicOn(err)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "on send Closing attempt, got err = '%v'\n", err)
+		// 'nats: invalid subject' for example.
+		fmt.Fprintf(os.Stderr, "doSendClosing() to '%s' attempt, got err = '%v'. kap.FromSessNonce='%s'. kap.DestSessNonce='%s'\n", kap.Dest, err, kap.FromSessNonce, kap.DestSessNonce)
 	}
 
 	s.keepAlive = time.After(s.KeepAliveInterval)
