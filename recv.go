@@ -12,7 +12,7 @@ import (
 )
 
 var ErrShutdown = fmt.Errorf("shutdown in progress")
-var ErrConnectWhenNotClosedNotListen = fmt.Errorf("connect request when receiver was not in Closed or Listen state")
+var ErrConnectWhenNotListen = fmt.Errorf("connect request when receiver was not in Listen state")
 
 // RxqSlot is the receiver's sliding window element.
 type RxqSlot struct {
@@ -25,6 +25,7 @@ type RecvState struct {
 	Clk                     Clock
 	Net                     Network
 	Inbox                   string
+	RemoteInbox             string
 	NextFrameExpected       int64
 	LastFrameClientConsumed int64
 	Rxq                     []*RxqSlot
@@ -40,8 +41,9 @@ type RecvState struct {
 	//	ReqStop chan bool
 	//	Done    chan bool
 
-	RecvSz       int64
-	DiscardCount int64
+	DoSendClosingCh chan *closeReq
+	RecvSz          int64
+	DiscardCount    int64
 
 	snd *SenderState
 
@@ -81,6 +83,7 @@ type RecvState struct {
 	testing       *testCfg
 
 	TcpState TcpState
+	retry    tcpRetryLogic
 
 	AppCloseCallback  func()
 	AcceptReadRequest chan *ReadRequest
@@ -90,6 +93,7 @@ type RecvState struct {
 	RemoteSessNonce string
 
 	connReqPending *ConnectReq
+	retryTimerCh   <-chan time.Time
 }
 
 // InOrderSeq represents ordered (and gapless)
@@ -120,6 +124,7 @@ func NewRecvState(net Network, recvSz int64, recvSzBytes int64, timeout time.Dur
 		RcvdButNotConsumed:  make(map[int64]*Packet),
 		ReadyForDelivery:    make([]*Packet, 0),
 		ReadMessagesCh:      make(chan InOrderSeq),
+		DoSendClosingCh:     make(chan *closeReq),
 		LastMsgConsumed:     -1,
 		LargestSeqnoRcvd:    -1,
 		MaxCumulBytesTrans:  0,
@@ -148,7 +153,7 @@ func (r *RecvState) Start() error {
 	switch nn := r.Net.(type) {
 	case *NatsNet:
 		//p("%v receiver setting nats subscription buffer limits", r.Inbox)
-		// NB: we have to allow somewhat *more* than than data
+		// NB: we have to reserve somewhat *more* than than data
 		// limits to allow nats to deliver control messages such
 		// as acks and keep-alives.
 		flow := r.snd.FlowCt.GetFlow()
@@ -164,7 +169,6 @@ func (r *RecvState) Start() error {
 	go func() {
 		defer func() {
 			//p("%s RecvState defer/shutdown happening.", r.Inbox)
-			// are we closing too fast?
 			r.Halt.RequestStop()
 			r.Halt.MarkDone()
 			r.cleanupOnExit()
@@ -175,8 +179,8 @@ func (r *RecvState) Start() error {
 
 	recvloop:
 		for {
-			//p("%v top of recvloop, receiver NFE: %v",
-			//	r.Inbox, r.NextFrameExpected)
+			//p("%v top of recvloop, receiver NFE: %v. TcpState=%s",
+			//	r.Inbox, r.NextFrameExpected, r.TcpState)
 
 			deliverToConsumer = nil
 			if len(r.ReadyForDelivery) > 0 {
@@ -187,8 +191,18 @@ func (r *RecvState) Start() error {
 				//p("%v recloop has len %v r.ReadyForDelivery, SeqNum from [%v, %v]", r.Inbox, len(r.ReadyForDelivery), delivery.Seq[0].SeqNum, delivery.Seq[deliveryLen-1].SeqNum)
 			}
 
-			//p("recvloop: about to select")
+			//p("%s recvloop: about to select", r.Inbox)
 			select {
+			case zr := <-r.DoSendClosingCh:
+				//p("%s 1st recv got r.DoSendClosingCh <- true", r.Inbox)
+				select {
+				case r.snd.DoSendClosingCh <- zr:
+					//p("%s 2nd recv sent to snd DoSendClosingCh <- true", r.Inbox)
+				case <-r.Halt.ReqStop.Chan:
+					return
+				}
+			case <-r.retryTimerCh:
+				r.retryCheck()
 
 			case cr := <-r.ConnectCh:
 				//
@@ -198,14 +212,22 @@ func (r *RecvState) Start() error {
 				// Also here: if original SYN was lost, we'll end up
 				// here again trying to re-send SYN, so don't freak.
 				//
-				if r.TcpState != Closed &&
-					r.TcpState != Listen &&
+				if r.RemoteInbox != "" {
+					if r.RemoteInbox != cr.DestInbox {
+						cr.Err = fmt.Errorf("error: receiver already locked onto remote '%s', says receiver '%s', can't do '%s' from ConnectCh request.", r.RemoteInbox, r.Inbox, cr.DestInbox)
+						close(cr.Done)
+						continue
+					}
+				}
+				r.RemoteInbox = cr.DestInbox
+
+				if r.TcpState != Listen &&
 					r.TcpState != SynSent {
 
 					if r.TcpState == Established || r.TcpState == SynReceived {
 						// no error, we are fine; connection is already established.
 					} else {
-						cr.Err = ErrConnectWhenNotClosedNotListen
+						cr.Err = ErrConnectWhenNotListen
 					}
 					close(cr.Done)
 					// ignore
@@ -289,18 +311,31 @@ func (r *RecvState) Start() error {
 				//p("recvloop: got <-r.snd.SenderShutdown. note that len(r.RcvdButNotConsumed)=%v", len(r.RcvdButNotConsumed))
 				return
 			case pack := <-r.MsgRecv:
+				//p("%v recvloop sees packet.SeqNum '%v', event:'%s', AckNum:%v", r.Inbox, pack.SeqNum, pack.TcpEvent, pack.AckNum)
+
+				// track the first remote and lock onto it.
+				if r.RemoteInbox == "" && pack.From != "" {
+					//p("%s locking onto remote %s", r.Inbox, pack.From)
+					r.RemoteInbox = pack.From
+				}
+				if pack.From != r.RemoteInbox {
+					// drop other remotes,
+					// also enforcing that we see Syn 1st.
+					//p("%s dropping pack that isn't from %s", r.Inbox,
+					//	r.RemoteInbox)
+					continue
+				}
 
 				// drop non-session packets: they are for other sessions
 				if r.TcpState >= Established && pack.DestSessNonce != r.LocalSessNonce {
 					//log.Printf("warning %v pack.DestSessNonce('%s') != r.LocalSessNonce('%s'): recvloop (in TcpState==%s) dropping packet.SeqNum '%v', event:'%s', AckNum:%v", r.Inbox, pack.DestSessNonce, r.LocalSessNonce, r.TcpState, pack.SeqNum, pack.TcpEvent, pack.AckNum)
-					continue
+					continue // drop others
 				}
 				if r.TcpState >= Established && pack.FromSessNonce != r.RemoteSessNonce {
 					//log.Printf("warining %v pack.FromSessNonce('%s') != r.RemoteSessNonce('%s'): recvloop (in TcpState==%s) dropping packet.SeqNum '%v', event:'%s', AckNum:%v", r.Inbox, pack.FromSessNonce, r.RemoteSessNonce, pack.SeqNum, r.TcpState, pack.TcpEvent, pack.AckNum)
-					continue
+					continue // drop others
 				}
 
-				//p("%v recvloop sees packet.SeqNum '%v', event:'%s', AckNum:%v", r.Inbox, pack.SeqNum, pack.TcpEvent, pack.AckNum)
 				// test instrumentation, used e.g. in clock_test.go
 				if r.testing != nil && r.testing.incrementClockOnReceive {
 					r.Clk.(*SimClock).Advance(time.Second)
@@ -311,8 +346,7 @@ func (r *RecvState) Start() error {
 					if 0 != bytes.Compare(pack.Blake2bChecksum, chk) {
 						log.Printf("expected checksum to be '%x', but was '%x'. For pack.SeqNum %v",
 							pack.Blake2bChecksum, chk, pack.SeqNum)
-						panic("data corruption detected by blake2b checksum")
-
+						//panic("data corruption detected by blake2b checksum")
 						// if we aren't going to panic, then at least drop the packet.
 						continue recvloop
 					} else {
@@ -365,17 +399,37 @@ func (r *RecvState) Start() error {
 				// data, or info?
 				if pack.TcpEvent != EventData {
 					// info:
+					event := pack.TcpEvent
+				doNextEvent:
+					preUpdate := r.TcpState
 					//p("%s recvp about to UpdateTcp, starting state=%s", r.Inbox, r.TcpState)
-					act := r.TcpState.UpdateTcp(pack.TcpEvent)
+					act := r.TcpState.UpdateTcp(event)
 					//p("%s recvp done with UpdateTcp, state is now=%s", r.Inbox, r.TcpState)
-					err := r.doTcpAction(act, pack)
-					if err == nil {
-						continue recvloop
-					} else {
+					if preUpdate != r.TcpState {
+						r.setupRetry(preUpdate, r.TcpState, pack, act)
+					}
+
+					eventNext, err := r.doTcpAction(act, pack)
+					//p("%s recvp done with doTcpAction(act=%s), eventNext=%s. err=%v", r.Inbox, act, eventNext, err)
+
+					// eventNext is typically EventNil, except when
+					// we need to sendFin after application close and
+					// enter LastAck. We still want to capture that
+					// in the retry logic, so we use a doNextEvent.
+					if eventNext != EventNil {
+						event = eventNext
+						goto doNextEvent
+					}
+					if err != nil {
 						// err != nil is our indicator to exit
 						//p("doTcpAction returned err='%v', returning.", err)
 						return
 					}
+					if r.TcpState == Closed {
+						//p("%s receiver recognized r.TcpState == Closed, shutting down", r.Inbox)
+						return
+					}
+					continue recvloop
 				}
 				// data: actual data received, receiver side stuff follows.
 
@@ -475,32 +529,42 @@ func (r *RecvState) UpdateControl(pack *Packet) {
 }
 
 // ack is a helper function, used in the recvloop above.
-// Currently seqno is typically r.LastFrameClientConsumed
+// Currently seqno is typically r.LastFrameClientConsumed.
+//
+// Allow pack to be nil for final death gasp EventReset.
 func (r *RecvState) ack(seqno int64, pack *Packet, event TcpEvent) {
-	if pack.SeqNum < 0 {
-		// keepalives will have seqno negative, so don't freak out.
-	}
+
+	// keepalives will have seqno negative, so don't freak out.
+
 	///p("%s RecvState.ack() is doing ack with event '%s' in state '%s', giving seqno=%v. LastFrameClientConsumed=%v", r.Inbox, event, r.TcpState, seqno, r.LastFrameClientConsumed)
 
-	r.UpdateControl(pack)
+	if pack != nil {
+		r.UpdateControl(pack)
+	}
 	///p("%v about to ack with AckNum: %v to %v, sending in the ack TcpEvent: %s", r.Inbox, seqno, pack.From, event)
 
 	// send ack
 	now := r.Clk.Now()
+	var ackRetry int64 = -1
+	dataSendTm := now
+	if pack != nil {
+		ackRetry = pack.SeqRetry
+		dataSendTm = pack.DataSendTm
+	}
 	ack := &Packet{
 		From:                r.Inbox,
 		FromSessNonce:       r.LocalSessNonce,
-		Dest:                pack.From,
-		DestSessNonce:       pack.FromSessNonce,
+		Dest:                r.RemoteInbox,
+		DestSessNonce:       r.RemoteSessNonce,
 		SeqNum:              -99, // => ack flag
 		SeqRetry:            -99,
 		AckNum:              seqno,
 		TcpEvent:            event,
 		AvailReaderBytesCap: r.LastAvailReaderBytesCap,
 		AvailReaderMsgCap:   r.LastAvailReaderMsgCap,
-		AckRetry:            pack.SeqRetry,
+		AckRetry:            ackRetry,
 		AckReplyTm:          now,
-		DataSendTm:          pack.DataSendTm,
+		DataSendTm:          dataSendTm,
 	}
 	if len(r.snd.SendAck) == cap(r.snd.SendAck) {
 		log.Printf("warning: %s ack queue is at capacity, very bad!  dropping oldest ack packet so as to add this one AckNum:%v, with TcpEvent:%s.", r.Inbox, ack.AckNum, ack.TcpEvent)
@@ -511,13 +575,14 @@ func (r *RecvState) ack(seqno int64, pack *Packet, event TcpEvent) {
 	select {
 	case r.snd.SendAck <- ack:
 	case <-time.After(time.Second * 10):
-		panic(fmt.Sprintf("%s receiver could not inform sender of ack after 10 seconds, something is seriously wrong internally--deadlock most likely. dropping ack packet AckNum:%v, with TcpEvent:%s.", r.Inbox, ack.AckNum, ack.TcpEvent))
+		log.Printf("%s receiver could not inform sender of ack after 10 seconds, something is seriously wrong internally--deadlock most likely. dropping ack packet AckNum:%v, with TcpEvent:%s.", r.Inbox, ack.AckNum, ack.TcpEvent)
 	case <-r.Halt.ReqStop.Chan:
 	}
 }
 
 // Stop the RecvState componennt
 func (r *RecvState) Stop() {
+	//p("%v RecvState.Stop() called.", r.Inbox)
 	r.Halt.ReqStop.Close()
 	<-r.Halt.Done.Chan
 }
@@ -569,49 +634,73 @@ func Blake2bOfBytes(by []byte) []byte {
 	return []byte(h.Sum(nil))
 }
 
-func (r *RecvState) doTcpAction(act TcpAction, pack *Packet) error {
+func (r *RecvState) doTcpAction(act TcpAction, pack *Packet) (TcpEvent, error) {
 	//p("%s doTcpAction received action '%s' in state '%s', in response to event '%s'", r.Inbox, act, r.TcpState, pack.TcpEvent)
+
 	switch act {
+
 	case NoAction:
-		return nil
+		return EventNil, nil
+
 	case SendDataAck:
 		r.ack(r.LastFrameClientConsumed, pack, EventDataAck)
+
 	case SendSyn:
 		r.ack(r.LastFrameClientConsumed, pack, EventSyn)
+
 	case SendSynAck:
-		// server learns of the remote session nonce
-		if r.RemoteSessNonce != "" {
-			panic(fmt.Sprintf("r.RemoteSessNonce is already set '%s'", r.RemoteSessNonce))
+		// server learns of the remote session nonce.
+
+		// allow repeats...
+		if r.RemoteSessNonce != "" &&
+			r.RemoteSessNonce != pack.FromSessNonce {
+			panic(fmt.Sprintf("r.RemoteSessNonce is "+
+				"already set to '%s', this pack has '%s'",
+				r.RemoteSessNonce, pack.FromSessNonce))
 		}
 		r.RemoteSessNonce = pack.FromSessNonce
 		r.ack(r.LastFrameClientConsumed, pack, EventSynAck)
+
 	case SendEstabAck:
 		// client learns of the remote session nonce
 		if r.RemoteSessNonce != "" {
-			panic(fmt.Sprintf("r.RemoteSessNonce is already set '%s'", r.RemoteSessNonce))
+			panic(fmt.Sprintf("r.RemoteSessNonce "+
+				"is already set '%s'", r.RemoteSessNonce))
 		}
 		r.RemoteSessNonce = pack.FromSessNonce
 		if r.connReqPending == nil {
-			panic("must have pending connReqPending when doing SendEstabAck, but did not.")
+			panic("must have pending connReqPending " +
+				"when doing SendEstabAck, but did not.")
 		}
 		r.connReqPending.RemoteNonce = r.RemoteSessNonce
 		close(r.connReqPending.Done)
 		r.connReqPending = nil
 		r.ack(r.LastFrameClientConsumed, pack, EventEstabAck)
+
 	case SendFin:
 		r.ack(r.LastFrameClientConsumed, pack, EventFin)
+
 	case SendFinAck:
 		r.ack(r.LastFrameClientConsumed, pack, EventFinAck)
+
 	case DoAppClose:
-		// after App has closed, then SendFinAck
+		// don't ack until app is shutdown.
 		if r.AppCloseCallback != nil {
+			// Only do this once.
 			r.AppCloseCallback()
+
+			// If we callback more than once, the app may
+			// try to double close channels etc.
+			// So prevent a repeat callback.
+			r.AppCloseCallback = nil
 		}
 		r.ack(r.LastFrameClientConsumed, pack, EventFinAck)
+		return EventApplicationClosed, nil
+
 	default:
 		panic(fmt.Sprintf("unrecognized TcpAction act = %v", act))
 	}
-	return nil
+	return EventNil, nil
 }
 
 func (r *RecvState) fillAsMuchAsPossible(rr *ReadRequest) {
@@ -681,11 +770,12 @@ func NewConnectReq(dest string) *ConnectReq {
 	}
 }
 
-var ErrConnectTimeout = fmt.Errorf("Connect() timeout waiting for SynAck")
+var ErrConnectTimeoutSyn = fmt.Errorf("Connect() timeout waiting to Syn, after 60 seconds")
+var ErrConnectTimeout = fmt.Errorf("Connect() timeout waiting for SynAck, after 60 seconds")
 
 func (r *RecvState) Connect(dest string, simulateUnderTestLostSynCount int) (remoteNonce string, err error) {
 
-	overallTooLong := time.After(time.Second * 20)
+	overallTooLong := time.After(time.Second * 60)
 	tries := 0
 	for {
 		tries++
@@ -693,8 +783,8 @@ func (r *RecvState) Connect(dest string, simulateUnderTestLostSynCount int) (rem
 
 		select {
 		case r.ConnectCh <- cr:
-		case <-time.After(time.Second * 10):
-			panic(fmt.Sprintf("%s recvstate could not SYN after 10 seconds, something is seriously wrong internally.", r.Inbox))
+		case <-time.After(time.Second * 60):
+			return "", ErrConnectTimeoutSyn
 		case <-r.Halt.ReqStop.Chan:
 			return "", ErrShutdown
 		}
@@ -720,4 +810,30 @@ func (r *RecvState) Connect(dest string, simulateUnderTestLostSynCount int) (rem
 
 		return "", ErrShutdown
 	}
+}
+
+var ErrTimeoutClose = fmt.Errorf("timed-out after 10 seconds waiting to get Close() message through.")
+
+// Close is gentler than Stop(). It politely notifies the remote side
+// to go through its full shutdown sequence. It will
+// return before that sequence is complete.
+func (r *RecvState) Close(zr *closeReq) error {
+	//p("%s RecvState.Close() running", r.Inbox)
+
+	select {
+	case r.DoSendClosingCh <- zr:
+		select {
+		case <-zr.done:
+			return nil
+		case <-r.Halt.ReqStop.Chan:
+			return nil
+		case <-time.After(10 * time.Second):
+			return ErrTimeoutClose
+		}
+	case <-r.Halt.ReqStop.Chan:
+		return nil
+	case <-time.After(10 * time.Second):
+		return ErrTimeoutClose
+	}
+	return nil
 }

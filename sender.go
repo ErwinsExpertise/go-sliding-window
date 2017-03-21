@@ -2,8 +2,8 @@ package swp
 
 import (
 	"fmt"
+	"log"
 	"math"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +91,8 @@ type SenderState struct {
 	// tell the receiver that sender is terminating
 	SenderShutdown chan bool
 
+	DoSendClosingCh chan *closeReq
+
 	recvLastFrameClientConsumed int64
 	LocalSessNonce              string
 	RemoteSessNonce             string
@@ -128,7 +130,8 @@ func NewSenderState(net Network, sendSz int64, timeout time.Duration,
 		SentButNotAckedByDeadline: newRetree(compareRetryDeadline),
 		SentButNotAckedBySeqNum:   newRetree(compareSeqNum),
 
-		SenderShutdown: make(chan bool),
+		SenderShutdown:  make(chan bool),
+		DoSendClosingCh: make(chan *closeReq),
 
 		// send keepalives (important especially for resuming flow from a
 		// stopped state) at least this often:
@@ -200,8 +203,7 @@ func (s *SenderState) Start(sess *Session) {
 
 		// shutdown stuff, all in one place for consistency
 		defer func() {
-			///p("%s SendState defer/shutdown happening.", s.Inbox)
-			s.doSendClosing()
+			//p("%s SendState defer/shutdown happening.", s.Inbox)
 			close(s.SenderShutdown) // stops the receiver
 			s.Halt.ReqStop.Close()
 			s.Halt.Done.Close()
@@ -241,6 +243,11 @@ func (s *SenderState) Start(sess *Session) {
 
 			//p("%v top of sender select loop", s.Inbox)
 			select {
+			case zr := <-s.DoSendClosingCh:
+				//p("%v sender got DoSendClosingCh message.", s.Inbox)
+				s.doSendClosing()
+				close(zr.done)
+
 			case <-s.keepAlive:
 				//p("%v keepAlive at %v", s.Inbox, s.Clk.Now())
 				s.doKeepAlive()
@@ -257,7 +264,7 @@ func (s *SenderState) Start(sess *Session) {
 					if elap > thresh {
 
 						// time to shutdown
-						p("too long (%v) since we've heard from the other end, declaring session dead and closing it.", thresh)
+						log.Printf("%s too long (%v) since we've heard from the other end, declaring session dead and closing it.", s.Inbox, thresh)
 						return
 					}
 				}
@@ -301,11 +308,14 @@ func (s *SenderState) Start(sess *Session) {
 					slot.Pack.DestSessNonce = s.RemoteSessNonce
 
 					err := s.Net.Send(slot.Pack, "retry")
-					panicOn(err)
+					if err != nil {
+						//ignore errors; nats net might be down.
+					}
 				}
 				regularIntervalWakeup = time.After(wakeFreq)
 
 			case <-s.Halt.ReqStop.Chan:
+				//p("%v got <-s.Halt.ReqStop.Chan", s.Inbox)
 				return
 			case pack := <-acceptSend:
 				//p("%v got <-acceptSend pack: '%#v'", s.Inbox, pack)
@@ -389,7 +399,7 @@ func (s *SenderState) Start(sess *Session) {
 				// request to send an ack:
 				// don't go though the BlockingSend protocol; since
 				// could effectively livelock us.
-				///p("%v doing ack Net.Send() where the ackPack has AckNum '%v'", s.Inbox, ackPack.AckNum)
+				//p("%v doing ack Net.Send() where the ackPack has AckNum '%v'. TcpEvent=%s", s.Inbox, ackPack.AckNum, ackPack.TcpEvent)
 				ackPack.FromRttEstNsec = int64(s.rtt.GetEstimate())
 				ackPack.FromRttSdNsec = int64(s.rtt.GetSd())
 				ackPack.FromRttN = s.rtt.N
@@ -401,8 +411,9 @@ func (s *SenderState) Start(sess *Session) {
 				}
 
 				err := s.Net.Send(ackPack, "SendAck/ackPack")
-				//panicOn(err) "nats: connection closed"
 				if err != nil {
+					// "nats: connection closed"
+					log.Printf("%s s.Net.Send(ackPack) got err='%v', returning", s.Inbox, err)
 					return
 				}
 			}
@@ -412,6 +423,7 @@ func (s *SenderState) Start(sess *Session) {
 
 // Stop the SenderState componennt
 func (s *SenderState) Stop() {
+	//p("%s Stop() called.", s.Inbox)
 	s.Halt.RequestStop()
 	<-s.Halt.Done.Chan
 }
@@ -528,27 +540,14 @@ func (s *SenderState) doKeepAlive() {
 
 	err := s.Net.Send(kap, fmt.Sprintf("keepalive from %v", s.Inbox))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "on send Keepalive attempt, got err = '%v'\n", err)
+		// very common, don't bother complaining:
+		// on send Keepalive attempt, got err = 'nats: connection closed'
+		// fmt.Fprintf(os.Stderr, "on send Keepalive attempt, got err = '%v'\n", err)
 	}
 
 	s.keepAlive = time.After(s.KeepAliveInterval)
 }
 
-// If close is out of bound, what if it is lost?
-// Is only the inband data sequence retried? Or
-// is out of band also retried? If close is not
-// acked with the regular data seqnums, then we
-// need to ack it separately.
-//
-// We seem to be closing before all data has
-// been delivered to the far-end client. Should
-// we be waiting to ack it until the client has
-// actually read it?
-//
-// We are seeing some packets misordered... how
-// is that possible if the sequence numbers are
-// correct?
-//
 func (s *SenderState) doSendClosing() {
 	//p("%s doSendClosing() running, sending TcpEvent:EventFin", s.Inbox)
 	flow := s.FlowCt.UpdateFlow(s.Inbox+":sender", s.Net, -1, -1, nil)
@@ -574,14 +573,15 @@ func (s *SenderState) doSendClosing() {
 	kap.DestSessNonce = s.RemoteSessNonce
 
 	err := s.Net.Send(kap, fmt.Sprintf("endpoint is closing, from %v", s.Inbox))
-	//panicOn(err)
 	if err != nil {
-		// ignore, the other end is most like already down.
+		// ignore errors, the other end is most like already down.
 		//
 		// sample:
 		// 'nats: invalid subject' for example.
 		// fmt.Fprintf(os.Stderr, "doSendClosing() to '%s' attempt, got err = '%v'. kap.FromSessNonce='%s'. kap.DestSessNonce='%s'\n", kap.Dest, err, kap.FromSessNonce, kap.DestSessNonce)
 	}
+	// force a send now, as we're about to shut down.
+	s.Net.Flush()
 }
 
 func min(a, b int64) int64 {

@@ -430,7 +430,7 @@ func InWindow(seqno, min, max int64) bool {
 
 // Stop shutsdown the session
 func (s *Session) Stop() {
-	///p("%v Session.Stop called.", s.MyInbox)
+	//p("%v Session.Stop called.", s.MyInbox)
 	s.Swp.Stop()
 	s.SetErr(s.Swp.Sender.GetErr())
 	s.Halt.RequestStop()
@@ -652,11 +652,16 @@ func (sess *Session) RecvFile() (*BigFile, error) {
 			"bf.Data was length %v, but expected %v bytes",
 			len(bf.Data), bf.SizeInBytes)
 	}
-	chksum := Blake2bOfBytes(bf.Data)
-	if 0 != bytes.Compare(bf.Blake2b, chksum) {
-		return bf, fmt.Errorf("RecvFile corruption detected: "+
-			"bf.Data had checksum '%x', but expected '%x'",
-			chksum, bf.Blake2b)
+	if len(bf.Blake2b) == 0 {
+		return bf, fmt.Errorf("got BigFile without checksum?!?!: bf.FilePath='%s', SizeInBytes='%v', SentTime=%v, len(Data)=%v", bf.Filepath, bf.SizeInBytes, bf.SendTime, len(bf.Data))
+
+	} else {
+		chksum := Blake2bOfBytes(bf.Data)
+		if 0 != bytes.Compare(bf.Blake2b, chksum) {
+			return bf, fmt.Errorf("RecvFile corruption detected: "+
+				"bf.Data had checksum '%x', but expected '%x'",
+				chksum, bf.Blake2b)
+		}
 	}
 	return bf, err
 }
@@ -724,4 +729,18 @@ func (s *Session) ConnectIfNeeded(dest string, simulateLostSynCount int) error {
 
 func (swp *SWP) Connect(dest string, simulateLostSynCount int) (remoteNonce string, err error) {
 	return swp.Recver.Connect(dest, simulateLostSynCount)
+}
+
+type closeReq struct {
+	done chan bool
+}
+
+func newCloseReq() *closeReq {
+	return &closeReq{done: make(chan bool)}
+}
+
+func (sess *Session) Close() error {
+	//p("%s sess Close() running, recv.TcpState=%s", sess.MyInbox, sess.Swp.Recver.TcpState)
+	zr := newCloseReq()
+	return sess.Swp.Recver.Close(zr)
 }
