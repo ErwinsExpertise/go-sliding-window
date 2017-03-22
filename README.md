@@ -13,19 +13,26 @@ A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
 })
 panicOn(err)
 
-// ... the other endpoint:
-B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
-            WindowMsgCount: 1024, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
-            NumFailedKeepAlivesBeforeClosing: 20, KeepAliveInterval: time.Second,
-})
-
 A.ConnectTimeout = time.Second
 A.ConnectAttempts = 10
 n, err := A.Write(writeme) // standard interface. io.Copy() will work too.
+
+// or bigFileSent, err = sessA.SendFile(path, writeme, time.Now())
+
 if err != nil {
     // handle error
 }
 A.Close()
+
+
+// ... the other endpoint, B:
+B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
+            WindowMsgCount: 1024, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+            NumFailedKeepAlivesBeforeClosing: 20, KeepAliveInterval: time.Second,
+})
+rbf, err = sessB.RecvFile()
+panicOn(err)
+by = rbf.Data // bytes are here.
 ~~~
 
 [Docs: https://godoc.org/github.com/glycerine/go-sliding-window](https://godoc.org/github.com/glycerine/go-sliding-window)
