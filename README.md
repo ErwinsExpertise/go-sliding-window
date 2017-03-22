@@ -1,5 +1,31 @@
 # go-sliding-window
 
+Transfer big files between nats clients.
+
+Sample code. We send a large file from A to B:
+~~~
+        // one endpoint:
+		A, err := NewSession(SessionConfig{Net: net, LocalInbox: "A", DestInbox: "B",
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			NumFailedKeepAlivesBeforeClosing: 20, KeepAliveInterval: time.Second,
+		})
+		panicOn(err)
+
+        // ... the other endpoint:
+		B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
+			WindowMsgCount: 3, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
+			NumFailedKeepAlivesBeforeClosing: 20, KeepAliveInterval: time.Second,
+		})
+
+		A.ConnectTimeout = time.Second
+		A.ConnectAttempts = 10
+   	    n, err := A.Write(writeme) // standard interface. io.Copy() will work too.
+        if err != nil {
+           // handle error
+        }
+	    A.Close()
+~~~
+
 [Docs: https://godoc.org/github.com/glycerine/go-sliding-window](https://godoc.org/github.com/glycerine/go-sliding-window)
 
 
