@@ -15,9 +15,10 @@ panicOn(err)
 
 A.ConnectTimeout = time.Second
 A.ConnectAttempts = 10
+// writeme has the []byte to send.
 n, err := A.Write(writeme) // standard interface. io.Copy() will work too.
 
-// or bigFileSent, err = sessA.SendFile(path, writeme, time.Now())
+// or bigFileSent, err = A.SendFile(path, writeme, time.Now())
 
 if err != nil {
     // handle error
@@ -30,9 +31,9 @@ B, err := NewSession(SessionConfig{Net: net, LocalInbox: "B", DestInbox: "A",
             WindowMsgCount: 1024, WindowByteSz: -1, Timeout: rtt, Clk: RealClk,
             NumFailedKeepAlivesBeforeClosing: 20, KeepAliveInterval: time.Second,
 })
-rbf, err = sessB.RecvFile()
+rbf, err = B.RecvFile()
 panicOn(err)
-by = rbf.Data // bytes are here.
+// rbf.Data has the bytes you sent in writeme.
 ~~~
 
 [Docs: https://godoc.org/github.com/glycerine/go-sliding-window](https://godoc.org/github.com/glycerine/go-sliding-window)
