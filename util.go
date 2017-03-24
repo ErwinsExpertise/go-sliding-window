@@ -165,7 +165,8 @@ func (s *NatsClient) Start() error {
 // hand as the callback handler.
 func (s *NatsClient) MakeSub(subject string, hand nats.MsgHandler) error {
 	var err error
-	s.Scrip, err = s.Nc.Subscribe(s.Subject, hand)
+	s.Scrip, err = s.Nc.Subscribe(subject, hand)
+	s.Subject = subject
 	return err
 }
 
